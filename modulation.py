@@ -8,10 +8,10 @@ from scipy.special import softmax
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
-from eeg_encoding.utils import generate_and_save_eeg_for_all_images, generate_eeg_for_image
+from eeg_encoding_utils import generate_and_save_eeg_for_all_images, generate_eeg_for_image
 import matplotlib.pyplot as plt
 from custom_pipeline import *
-from modulation_utils import get_image_pool, calculate_loss, calculate_similarity, select, load_target_psd, get_prob_random_sample, load_vlmodel
+from modulation_utils import *
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
@@ -51,7 +51,22 @@ def fusion_image_to_images(image_gt_paths, num_images, device, save_path, scale)
         del batch_images
         torch.cuda.empty_cache()
 
-def main_experiment_loop(seed, subject_id, save_path): 
+def pre_experiment(subject_id, save_path):
+    """
+    预实验：选择具有最小相似度的三个 EEG 通道，并确定 target_image 对应的 target_psd
+    """
+    eeg_path = f'/mnt/dataset0/xkp/closed-loop/pre_exp_eeg'
+    file_list = [os.path.join(eeg_path, f) for f in sorted(os.listdir(eeg_path))]
+    data = np.array([np.load(file) for file in file_list])  # (n_samples, n_channels, n_timepoints)
+
+    selected_channel_idxes = get_selected_channel_idxes(data, fs)
+    print(f"Subject {subject_id} - Selected channel indexes: {selected_channel_idxes}")
+
+    
+
+
+
+def main_experiment_loop(seed, subject_id, save_path):  
     print(seed)
 
     sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02'))
@@ -225,4 +240,5 @@ if __name__ == "__main__":
             np.random.seed(seed)
             random.seed(seed)
             print(f'Subject {subject_id}/{num_subjects} - Run {i}/{num_run} - Seed: {seed}')
+            pre_experiment(subject_id, base_save_path)
             main_experiment_loop(seed, subject_id, base_save_path)

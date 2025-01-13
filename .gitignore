@@ -1,3 +1,9 @@
+# Custom
+cornet/
+exp_sub7/
+sdxl-turbo/
+target_eeg/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

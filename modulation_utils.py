@@ -7,7 +7,8 @@ import open_clip
 import random
 from scipy.special import softmax
 from mne.time_frequency import psd_array_multitaper
-from eeg_encoding.utils import generate_and_save_eeg_for_all_images, load_model_endocer, preprocess_image, generate_eeg
+from sklearn.metrics.pairwise import cosine_similarity
+from eeg_encoding_utils import generate_and_save_eeg_for_all_images, load_model_endocer, preprocess_image, generate_eeg
 
 def load_vlmodel(model_name='ViT-H-14', model_weights_path=None, precision='fp32', device=None):
     if device is None:
@@ -103,3 +104,61 @@ def get_target_eeg(model_path, target_image_path, save_dir, device):
     target_eeg_path = os.path.join(save_dir, f"{filename}.npy")
     np.save(target_eeg_path, synthetic_eeg)
     return target_eeg_path
+
+def get_selected_channel_idxes(data, fs=250):
+    """
+    挑选出 PSD 特征之间相似度最小的三个通道。
+    
+    :param data: EEG 数据，形状为 (n_samples, n_channels, n_timepoints)
+    :param fs: 采样频率，默认 250 Hz
+    :return: 最显著（相似度最小）的三个通道索引
+    """
+    n_channels = data.shape[1]
+    psds = []
+
+    # 计算每个通道的平均 PSD
+    for channel_idx in range(n_channels):
+        channel_data = data[:, channel_idx, :]  # (n_samples, n_timepoints)
+        psd_sum = 0
+        for sample_idx in range(channel_data.shape[0]):
+            psd, _ = psd_array_multitaper(channel_data[sample_idx], fs, adaptive=True, normalization='full', verbose=0)
+            psd_sum += psd
+        psds.append(psd_sum / channel_data.shape[0])  # 计算通道的平均 PSD
+
+    psds = np.array(psds)  # 转为 NumPy 数组，形状为 (n_channels, n_frequencies)
+
+    # 计算通道之间的相似度
+    similarity_matrix = cosine_similarity(psds)
+    np.fill_diagonal(similarity_matrix, np.nan)  # 将对角线（自相似）设置为 NaN
+
+    # 计算每个通道与其他通道的平均相似度
+    mean_similarity = np.nanmean(similarity_matrix, axis=1)
+
+    # 选取平均相似度最小的三个通道
+    selected_channel_idxes = np.argsort(mean_similarity)[:3].tolist()
+
+    return selected_channel_idxes
+
+def get_target_image(data, selected_channel_idxes, fs=250):
+    """
+    :param selected_channel_idxes: 使用具有最大视觉特征的通道
+    :param data: (n_samples, n_channels, n_timepoints)
+    """
+    
+    selected_data = data[:,selected_channel_idxes, :]
+
+    # PSD 特征提取
+    psds = []
+    for i in range(selected_data.shape[0]):
+        psd, _ = psd_array_multitaper(selected_data[i,:,:], fs, adaptive=True, normalization='full', verbose=0)
+        psd = psd.flatten()
+        psds.append(psd)
+    psds = np.array(psds)
+    psds = torch.from_numpy(psds)
+
+    # 取相似度最小的样本，返回其索引
+    similarity_matrix = cosine_similarity(psds)
+    np.fill_diagonal(similarity_matrix, np.nan)
+    mean_similarity = np.nanmean(similarity_matrix, axis=1)
+    lowest_index = np.argsort(mean_similarity)[0]
+    return lowest_index

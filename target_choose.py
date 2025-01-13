@@ -26,7 +26,3 @@ np.fill_diagonal(similarity_matrix, np.nan)
 mean_similarity = np.nanmean(similarity_matrix, axis=1)
 lowest_indexes = np.argsort(mean_similarity)[:3]
 print(lowest_indexes, mean_similarity[lowest_indexes])
-
-def target_choose(data, target_num):
-    
-    return lowest_indexes
