@@ -136,7 +136,24 @@ def get_selected_channel_idxes(data, fs=250):
 
     # 选取平均相似度最小的三个通道
     selected_channel_idxes = np.argsort(mean_similarity)[:3].tolist()
+    
+    # """
+    # 挑选出不同 sample 下方差最大的三个通道。
+    
+    # :param data: EEG 数据，形状为 (n_samples, n_channels, n_timepoints)
+    # :param fs: 采样频率，默认 250 Hz
+    # :return: 方差最大的三个通道索引
+    # """
+    # variances = []
+    # n_channels = data.shape[1]
+    # for ch in range(n_channels):
+    #     channel_data = data[:, ch, :]  # Shape: (n_samples, n_timepoints)
+    #     # Calculate variance across samples
+    #     var_val = np.var(channel_data, axis=0).mean()
+    #     variances.append(var_val)
 
+    # # Get indices of the top 3 channels with the highest variance
+    # selected_channel_idxes = np.argsort(variances)[-3:][::-1].tolist()
     return selected_channel_idxes
 
 def get_target_image(data, selected_channel_idxes, fs=250):

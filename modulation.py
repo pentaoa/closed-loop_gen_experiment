@@ -18,8 +18,8 @@ model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
 fs = 250
 selected_channel_idxes = [3, 4, 5]  # 'O1', 'Oz', 'O2'
 
-vlmodel, preprocess_train, feature_extractor = load_vlmodel(model_weights_path=model_weights_path, device=device)
-generator = Generator4Embeds(guidance_scale=2.0, num_inference_steps=4, device=device)
+#vlmodel, preprocess_train, feature_extractor = load_vlmodel(model_weights_path=model_weights_path, device=device)
+#generator = Generator4Embeds(guidance_scale=2.0, num_inference_steps=4, device=device)
 
 def fusion_image_to_images(image_gt_paths, num_images, device, save_path, scale):
     img_embeds = []
@@ -51,25 +51,22 @@ def fusion_image_to_images(image_gt_paths, num_images, device, save_path, scale)
         del batch_images
         torch.cuda.empty_cache()
 
-def pre_experiment(subject_id, save_path):
+def pre_experiment(subject_id, save_path, sub):
     """
     预实验：选择具有最小相似度的三个 EEG 通道，并确定 target_image 对应的 target_psd
     """
-    eeg_path = f'/mnt/dataset0/xkp/closed-loop/pre_exp_eeg'
+    #eeg_path = f'/mnt/dataset0/xkp/closed-loop/pre_exp_eeg'
+    eeg_path = '/mnt/dataset0/jiahua/eeg_encoding/results/sub-06/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-True/lr-1e-05__wd-0e+00__bs-064/gene_eeg'
     file_list = [os.path.join(eeg_path, f) for f in sorted(os.listdir(eeg_path))]
     data = np.array([np.load(file) for file in file_list])  # (n_samples, n_channels, n_timepoints)
 
     selected_channel_idxes = get_selected_channel_idxes(data, fs)
     print(f"Subject {subject_id} - Selected channel indexes: {selected_channel_idxes}")
 
-    
 
-
-
-def main_experiment_loop(seed, subject_id, save_path):  
+def main_experiment_loop(seed, sub, save_path):  
     print(seed)
 
-    sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02'))
     model_path = f'/mnt/dataset0/jiahua/eeg_encoding/results/{sub}/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-False/lr-1e-05__wd-0e+00__bs-064/model_state_dict.pt'
     #target_eeg_path = f'/home/tjh/results/{sub}/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-False/lr-1e-05__wd-0e+00__bs-064/gene_eeg/00183_tick_183.npy'
     target_image_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images/00183_tick/tick_06s.jpg'
@@ -229,16 +226,17 @@ def main_experiment_loop(seed, subject_id, save_path):
     
 
 if __name__ == "__main__":
-    num_run = 10
+    num_run = 1
     num_subjects = 7
     for subject_id in range(7, num_subjects + 1):
         base_seed = 100000 * subject_id 
         for i in range(1, num_run + 1):
             base_save_path = f'/mnt/dataset0/xkp/closed-loop/exp_sub{subject_id}/loop_random_{i}'
+            sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02'))
             os.makedirs(base_save_path, exist_ok=True)
             seed = base_seed + i 
             np.random.seed(seed)
             random.seed(seed)
             print(f'Subject {subject_id}/{num_subjects} - Run {i}/{num_run} - Seed: {seed}')
-            pre_experiment(subject_id, base_save_path)
-            main_experiment_loop(seed, subject_id, base_save_path)
+            pre_experiment(subject_id, base_save_path, sub)
+            # main_experiment_loop(seed, sub, base_save_path)
