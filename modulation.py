@@ -59,7 +59,7 @@ def pre_experiment(subject_id, save_path, sub):
     eeg_path = '/mnt/dataset0/jiahua/eeg_encoding/results/sub-06/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-True/lr-1e-05__wd-0e+00__bs-064/gene_eeg'
     file_list = [os.path.join(eeg_path, f) for f in sorted(os.listdir(eeg_path))]
     data = np.array([np.load(file) for file in file_list])  # (n_samples, n_channels, n_timepoints)
-
+    
     selected_channel_idxes = get_selected_channel_idxes(data, fs)
     print(f"Subject {subject_id} - Selected channel indexes: {selected_channel_idxes}")
 
