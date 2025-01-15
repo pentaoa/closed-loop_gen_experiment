@@ -64,8 +64,9 @@ def pre_experiment(subject_id, save_path, sub):
     print(f"Subject {subject_id} - Selected channel indexes: {selected_channel_idxes}")
 
 
-def main_experiment_loop(seed, sub, save_path):  
-    print(seed)
+def main_experiment_loop(seed, sub, save_path, num_loops):  
+    print('Seed:', seed)
+    print('Number of loops:', num_loops)
 
     model_path = f'/mnt/dataset0/jiahua/eeg_encoding/results/{sub}/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-False/lr-1e-05__wd-0e+00__bs-064/model_state_dict.pt'
     #target_eeg_path = f'/home/tjh/results/{sub}/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-False/lr-1e-05__wd-0e+00__bs-064/gene_eeg/00183_tick_183.npy'
@@ -77,7 +78,6 @@ def main_experiment_loop(seed, sub, save_path):
     test_images_path, _ = get_image_pool(image_set_path)
     test_images_path.remove(target_image_path)
 
-    num_loops = 90
     processed_paths = set()
     
     all_chosen_similarities = []
@@ -228,15 +228,16 @@ def main_experiment_loop(seed, sub, save_path):
 if __name__ == "__main__":
     num_run = 1
     num_subjects = 7
+    num_loops = 90
     for subject_id in range(7, num_subjects + 1):
         base_seed = 100000 * subject_id 
         for i in range(1, num_run + 1):
             base_save_path = f'/mnt/dataset0/xkp/closed-loop/exp_sub{subject_id}/loop_random_{i}'
-            sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02'))
+            sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02')) # 如果 subject_id 大于或等于 10，直接使用其值；如果小于 10，则将其格式化为两位数字（如 01, 02）。
             os.makedirs(base_save_path, exist_ok=True)
             seed = base_seed + i 
             np.random.seed(seed)
             random.seed(seed)
             print(f'Subject {subject_id}/{num_subjects} - Run {i}/{num_run} - Seed: {seed}')
             pre_experiment(subject_id, base_save_path, sub)
-            # main_experiment_loop(seed, sub, base_save_path)
+            main_experiment_loop(seed, sub, base_save_path, num_loops)

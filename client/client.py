@@ -8,24 +8,12 @@ from socketIO_client import SocketIO
 
 pre_eeg_path = f'client/pre_eeg'
 instant_eeg_path = f'client/instant_eeg'
-
-
-def on_pre_experiment_ready(controller):
-    # 启动预试验
-    controller.model.set_phase('pre_experiment_waiting')
-    time.sleep(100)
-
-    response = requests.post('http://<server-ip>:55565/main_experiment_loop', json={'eeg_data': eeg_data})
-    if response.status_code == 200:
-        print(response.json()["message"])
-    else:
-        print(f"Failed to start main experiment: {response.status_code}")
-
+image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'
 
 def on_connect(view):
     print('Connected to server')
     view.display_text('Connected to server')
-
+    time.sleep(1)
 
 def on_connect_error(view):
     print('Failed to connect to server')
@@ -34,6 +22,15 @@ def on_connect_error(view):
     pg.quit()
     quit()
 
+def on_pre_experiment_ready(controller):
+    # 启动预试验
+    controller.start_pre_experiment(image_set_path, pre_eeg_path)
+    controller.upload_pre_eeg(pre_eeg_path)
+
+
+def on_experiment_ready(controller):
+    # 启动实验
+    controller.start_experiment()
 
 if __name__ == '__main__':
     model = Model()
@@ -47,6 +44,7 @@ if __name__ == '__main__':
     socketIO.on('connect', on_connect(view))
     socketIO.on('connect_error', on_connect_error)
     socketIO.on('pre_experiment_ready', on_pre_experiment_ready(controller))
+    socketIO.on('experiment_ready', on_experiment_ready(controller))
     socketIO.on('message', on_message)
 
     # 保持 WebSocket 连接

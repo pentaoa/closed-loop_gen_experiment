@@ -13,7 +13,6 @@ class Model:
         self.current_phase = 'waiting'
         self.current_task_index = 0
         self.current_sequence = 0
-        self.total_sequences = len(images) // num_per_event
         self.sample_rate = 1000
         self.t_buffer = 1000
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
@@ -83,84 +82,6 @@ class Controller:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         running = False
-                    elif event.key == pg.K_SPACE:
-                        if self.model.current_phase == 'pre_experiment_waiting':
-                            self.model.set_phase('pre_experiment_start')
-                        if self.model.current_phase == 'experiment_waiting':
-                            self.model.set_phase('experiment_start')
-
-            # 等待连接到 Jellyfish
-            if self.model.current_phase == 'waiting':
-                self.view.display_waiting_screen()
-
-            # 预实验等待阶段
-            elif self.model.current_phase == 'pre_experiment_waiting':
-                self.view.display_text('Input space to start')
-                self.view.clear_screen()
-
-            # 预实验阶段
-            elif self.model.current_phase == 'pre_experiment_start':
-                # TODO: pre_experiment_start phase
-                time.sleep(0.75)  # 500ms 黑屏
-                image_and_index = self.model.get_next_sequence()
-                for image_index_pair in image_and_index:
-                    image, label = image_index_pair
-                    print("label: ", label)
-                    self.view.display_image(image)
-                    self.model.trigger(label)  # 使用图像的类别编号发送触发器
-                    time.sleep(0.1)
-                    self.view.display_fixation()
-                    time.sleep(0.1)
-                if self.model.current_sequence >= self.model.total_sequences:
-                    self.model.set_phase('stop')
-                else:
-                    self.model.set_phase('black_screen_post')
-
-            # 实验等待阶段
-            elif self.model.current_phase == 'experiment_waiting':
-                self.view.display_text('Input space to start')
-                self.view.clear_screen()
-
-            # 实验阶段
-            elif self.model.current_phase == 'pre_experiment_start':
-                # TODO: pre_experiment_start phase
-                time.sleep(0.75)  # 500ms 黑屏
-                image_and_index = self.model.get_next_sequence()
-                for image_index_pair in image_and_index:
-                    image, label = image_index_pair
-                    print("label: ", label)
-                    self.view.display_image(image)
-                    self.model.trigger(label)  # 使用图像的类别编号发送触发器
-                    time.sleep(0.1)
-                    self.view.display_fixation()
-                    time.sleep(0.1)
-                if self.model.current_sequence >= self.model.total_sequences:
-                    self.model.set_phase('stop')
-                else:
-                    self.model.set_phase('black_screen_post')
-
-            # 眨眼时间等待按键继续
-            elif self.model.current_phase == 'blink_time':
-                self.view.display_text('请眨眼，准备好后按空格继续', (50, 50))
-                self.waiting_for_space = True  # 开始等待空格键
-
-            # 序列结束后的黑屏
-            elif self.model.current_phase == 'black_screen_post':
-                self.view.clear_screen()
-                time.sleep(0.75)  # 750ms 黑屏
-                self.model.set_phase('blink_time')
-
-            # 眨眼时间
-            elif self.model.current_phase == 'blink_time':
-                self.view.display_text('请眨眼', (50, 50))
-                time.sleep(2)  # 2秒眨眼时间
-                self.model.set_phase('black_screen_pre')
-
-            # 实验结束
-            elif self.model.current_phase == 'stop':
-                self.view.display_text('Thank you!')
-                time.sleep(3)
-                running = False
 
         # 在实验循环结束后停止数据收集并保存数据
         self.model.stop_data_collection()
@@ -169,10 +90,70 @@ class Controller:
         gc.collect()
         quit()
 
-    def handle_space(self):
-        # 按空格键跳转到下一个序列的开始
-        if self.model.current_phase == 'blink_time':
-            self.model.set_phase('black_screen_pre')
+    def wait_for_connection(self):
+        self.view.display_waiting_screen()
+
+    def wait_for_space(self):
+        waiting = True
+        while waiting:
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
+                    waiting = False
+
+    def start_pre_experiment(self):
+        self.view.display_text('Press SPACE to start', (50, 50))
+        self.wait_for_space()
+        time.sleep(0.75)  # 500ms 黑屏
+        image_and_index = self.model.get_next_sequence()
+        for image_index_pair in image_and_index:
+            image, label = image_index_pair
+            print("label: ", label)
+            self.view.display_image(image)
+            self.model.trigger(label)  # 使用图像的类别编号发送触发器
+            time.sleep(0.1)
+            self.view.display_fixation()
+            time.sleep(0.1)
+        if self.model.current_sequence >= self.model.total_sequences:
+            self.end_experiment()
+        else:
+            self.black_screen_post()
+
+    def start_experiment(self):
+        self.view.display_text('Press SPACE to start', (50, 50))
+        self.wait_for_space()
+        time.sleep(0.75)  # 500ms 黑屏
+        image_and_index = self.model.get_next_sequence()
+        for image_index_pair in image_and_index:
+            image, label = image_index_pair
+            print("label: ", label)
+            self.view.display_image(image)
+            self.model.trigger(label)  # 使用图像的类别编号发送触发器
+            time.sleep(0.1)
+            self.view.display_fixation()
+            time.sleep(0.1)
+        if self.model.current_sequence >= self.model.total_sequences:
+            self.end_experiment()
+        else:
+            self.black_screen_post()
+
+    def black_screen_post(self):
+        self.view.clear_screen()
+        time.sleep(0.75)  # 750ms 黑屏
+        self.blink_time()
+
+    def blink_time(self):
+        self.view.display_text('请眨眼，准备好后按空格继续', (50, 50))
+        self.wait_for_space()
+        self.start_experiment()
+
+    def end_experiment(self):
+        self.view.display_text('Thank you!')
+        time.sleep(3)
+        self.model.stop_data_collection()
+        self.model.save_data(self.model.npy_index)  # 保存数据
+        pg.quit()
+        gc.collect()
+        quit()    
 
 
 class View:
