@@ -4,6 +4,8 @@ from flask_socketio import SocketIO, emit
 import numpy as np
 import os
 import random
+import shutil
+import time
 
 from server.modulation_utils import *
 from server.modulation import fusion_image_to_images
@@ -15,9 +17,12 @@ image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_i
 pre_eeg_path = 'server/pre_eeg'
 instant_eeg_path = 'server/instant_eeg'
 
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
+
 num_loop_random = 1
 subject_id = 1 
-num_loops = 90
+num_loops = 10
 sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02')) # 如果 subject_id 大于或等于 10，直接使用其值；如果小于 10，则将其格式化为两位数字（如 01, 02）。
 selected_channel_idxes = []
 target_image_path = None
@@ -113,7 +118,7 @@ def experiment():
                 for sample_image_path in sample_image_paths:
                     filename = os.path.basename(sample_image_path).split('.')[0]
                     sample_image_name.append(filename)
-                collect_and_save_eeg_for_all_images(model_path, sample_image_paths, first_ten, device, sample_image_name)
+                collect_and_save_eeg_for_all_images(sample_image_paths, first_ten, sample_image_name)
 
                 similarities = []
                 sample_eeg_paths = []
@@ -146,7 +151,7 @@ def experiment():
                     image_path_list.append(image_path)
                     file_name = os.path.splitext(image)[0]
                     label_list.append(file_name)
-            collect_and_save_eeg_for_all_images(model_path, image_path_list, round_save_path, device, label_list)
+            collect_and_save_eeg_for_all_images(image_path_list, round_save_path, label_list)
             for eeg in sorted(os.listdir(round_save_path)):
                 if eeg.endswith('npy'):
                     eeg_path = os.path.join(round_save_path, eeg)
@@ -170,7 +175,7 @@ def experiment():
             # print(len(processed_paths))
             new_save_path = os.path.join(round_save_path, 'new_sample_signal')
             os.makedirs(new_save_path, exist_ok=True)
-            collect_and_save_eeg_for_all_images(model_path, new_sample_list, new_save_path, device, new_sample_label)
+            collect_and_save_eeg_for_all_images(new_sample_list, new_save_path, new_sample_label)
             for new_sample_eeg in sorted(os.listdir(new_save_path)):
                 new_sample_eeg_path = os.path.join(new_save_path, new_sample_eeg)
                 loop_eeg_ten.append(new_sample_eeg_path)
@@ -233,6 +238,10 @@ def experiment():
         print(all_chosen_image_paths)
         print(all_chosen_eeg_paths)
 
+    socketio.emit('experiment_finished', {'message': 'Experiment finished'})
+    time.sleep(2)
+    socketio.stop()
+
 
 @socketio.on('/instant_eeg_upload', methods=['POST'])
 def process_instant_eeg():
@@ -259,7 +268,6 @@ def process_instant_eeg():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    return 
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -273,7 +281,27 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
             images.append(encoded_string)
     socketio.emit('images_received', {'images': images})
 
+    while True:
+        files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
+        if files:
+            break
+        else:
+            time.sleep(1)
+
+    time.sleep(10)
+
+    files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
+    for idx, filename in enumerate(files):
+        file_path = os.path.join(instant_eeg_path, filename)
+        category = category_list[idx]
+        new_filename = f"{category}_{filename}"
+        dest_path = os.path.join(save_path, new_filename)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        shutil.move(file_path, dest_path)
+        print(f"Moved and renamed file to {dest_path}")
+
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=55565)
     SocketIO.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
+

@@ -76,6 +76,11 @@ def on_images_received(data, controller):
     
     response = requests.post(url, files=files)
 
+def on_experiment_finished(controller):
+    controller.stop_collection()
+    socketIO.disconnect()
+
+
 if __name__ == '__main__':
     model = Model()
     view = View()
@@ -90,7 +95,7 @@ if __name__ == '__main__':
     socketIO.on('pre_experiment_ready', lambda: on_pre_experiment_ready(controller))
     socketIO.on('experiment_ready', lambda: on_experiment_ready())
     socketIO.on('images_received', lambda data: on_images_received(data, controller))
-    socketIO.on('experiment_finished', lambda: on_experiment_finished())
+    socketIO.on('experiment_finished', lambda: on_experiment_finished(controller))
 
     # 保持 WebSocket 连接
     socketIO.wait()

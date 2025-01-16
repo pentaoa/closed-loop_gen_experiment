@@ -18,7 +18,16 @@ class Model:
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM4")
-        self.sequence_indices = list(range(len(images)))
+
+    def start_data_collection(self):
+        notConnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
+        if notConnect:
+            raise Exception("Can't connect to JellyFish, please check the hostport.")
+        else:
+            while not self.thread_data_server.isReady():
+                time.sleep(1)
+                continue
+            self.thread_data_server.start()
 
     def trigger(self, label):
         code = int(label)  # 直接将传入的类别编号转换为整数
@@ -115,7 +124,6 @@ class Controller:
 
         # 在实验循环结束后停止数据收集并保存数据
         self.model.stop_data_collection()
-        self.model.save_data(self.model.npy_index)  # 保存数据
         pg.quit()
         gc.collect()
         quit()
@@ -182,40 +190,15 @@ class Controller:
         self.model.save_instant_eeg(instant_eeg_path)
         self.view.display_text('Data saved')
 
-        
-    def start_experiment(self):
-        self.view.display_text('Press SPACE to start')
-        self.wait_for_space()
-        time.sleep(0.75)  # 500ms 黑屏
-        image_and_index = self.model.get_next_sequence()
-        for image_index_pair in image_and_index:
-            image, label = image_index_pair
-            print("label: ", label)
-            self.view.display_image(image)
-            self.model.trigger(label)  # 使用图像的类别编号发送触发器
-            time.sleep(0.1)
-            self.view.display_fixation()
-            time.sleep(0.1)
-        if self.model.current_sequence >= self.model.total_sequences:
-            self.end_experiment()
-        else:
-            self.black_screen_post()
-
     def black_screen_post(self):
         self.view.clear_screen()
         time.sleep(0.75)  # 750ms 黑屏
         self.blink_time()
 
-    def blink_time(self):
-        self.view.display_text('请眨眼，准备好后按空格继续', (50, 50))
-        self.wait_for_space()
-        self.start_experiment()
-
     def end_experiment(self):
         self.view.display_text('Thank you!')
         time.sleep(3)
         self.model.stop_data_collection()
-        self.model.save_data(self.model.npy_index)  # 保存数据
         pg.quit()
         gc.collect()
         quit()
