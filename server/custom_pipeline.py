@@ -459,10 +459,6 @@ def encode_image(image, image_encoder, feature_extractor, num_images_per_prompt=
 class Generator4Embeds:
 
     def __init__(self, guidance_scale, num_inference_steps=1,device='cuda') -> None:
-        import os
-        os.environ['http_proxy'] = 'http://10.16.35.10:13390' 
-        os.environ['https_proxy'] = 'http://10.16.35.10:13390' 
-
         self.num_inference_steps = num_inference_steps
         self.dtype = torch.float16
         self.device = device

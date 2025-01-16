@@ -8,7 +8,6 @@ import random
 from scipy.special import softmax
 from mne.time_frequency import psd_array_multitaper
 from sklearn.metrics.pairwise import cosine_similarity
-from eeg_encoding_utils import generate_and_save_eeg_for_all_images, load_model_endocer, preprocess_image, generate_eeg
 
 def load_vlmodel(model_name='ViT-H-14', model_weights_path=None, precision='fp32', device=None):
     if device is None:
@@ -70,40 +69,40 @@ def load_target_psd(target_path, fs, selected_channel_idxes):
     target_psd, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
 
-def get_prob_random_sample(test_images_path, model_path, save_path, fs, device, selected_channel_idxes, processed_paths, target_psd):
-    available_paths = [path for path in test_images_path if path not in processed_paths]
-    sample_image_paths = sorted(random.sample(available_paths, 10))
-    processed_paths.update(sample_image_paths)
-    sample_image_name = []
-    for sample_image_path in sample_image_paths:
-        filename = os.path.basename(sample_image_path).split('.')[0]
-        sample_image_name.append(filename)
-    generate_and_save_eeg_for_all_images(model_path, sample_image_paths, save_path, device, sample_image_name)
-    similarities = []
-    sample_eeg_paths = []
-    losses = []
-    for eeg in sorted(os.listdir(save_path)):
-        filename = eeg.split('.')[0]
-        eeg_path = os.path.join(save_path, eeg)
-        sample_eeg_paths.append(eeg_path)
-        cs = calculate_similarity(eeg_path, target_psd, fs, selected_channel_idxes)
-        similarities.append(cs)
-        loss = calculate_loss(eeg_path, target_psd, fs, selected_channel_idxes)
-        losses.append(loss)
-    probabilities = softmax(similarities)
-    chosen_similarities, chosen_losses, chosen_image_paths, chosen_eeg_paths = select(probabilities, similarities, losses, sample_image_paths, sample_eeg_paths)
-    return chosen_similarities, chosen_losses, chosen_image_paths, chosen_eeg_paths
+# def get_prob_random_sample(test_images_path, model_path, save_path, fs, device, selected_channel_idxes, processed_paths, target_psd):
+#     available_paths = [path for path in test_images_path if path not in processed_paths]
+#     sample_image_paths = sorted(random.sample(available_paths, 10))
+#     processed_paths.update(sample_image_paths)
+#     sample_image_name = []
+#     for sample_image_path in sample_image_paths:
+#         filename = os.path.basename(sample_image_path).split('.')[0]
+#         sample_image_name.append(filename)
+#     generate_and_save_eeg_for_all_images(model_path, sample_image_paths, save_path, device, sample_image_name)
+#     similarities = []
+#     sample_eeg_paths = []
+#     losses = []
+#     for eeg in sorted(os.listdir(save_path)):
+#         filename = eeg.split('.')[0]
+#         eeg_path = os.path.join(save_path, eeg)
+#         sample_eeg_paths.append(eeg_path)
+#         cs = calculate_similarity(eeg_path, target_psd, fs, selected_channel_idxes)
+#         similarities.append(cs)
+#         loss = calculate_loss(eeg_path, target_psd, fs, selected_channel_idxes)
+#         losses.append(loss)
+#     probabilities = softmax(similarities)
+#     chosen_similarities, chosen_losses, chosen_image_paths, chosen_eeg_paths = select(probabilities, similarities, losses, sample_image_paths, sample_eeg_paths)
+#     return chosen_similarities, chosen_losses, chosen_image_paths, chosen_eeg_paths
 
-def get_target_eeg(model_path, target_image_path, save_dir, device):
-    model = load_model_endocer(model_path, device)
-    image_tensor = preprocess_image(target_image_path, device)
-    synthetic_eeg = generate_eeg(model, image_tensor, device)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    filename = os.path.splitext(os.path.basename(target_image_path))[0]
-    target_eeg_path = os.path.join(save_dir, f"{filename}.npy")
-    np.save(target_eeg_path, synthetic_eeg)
-    return target_eeg_path
+# def get_target_eeg(model_path, target_image_path, save_dir, device):
+#     model = load_model_endocer(model_path, device)
+#     image_tensor = preprocess_image(target_image_path, device)
+#     synthetic_eeg = generate_eeg(model, image_tensor, device)
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir)
+#     filename = os.path.splitext(os.path.basename(target_image_path))[0]
+#     target_eeg_path = os.path.join(save_dir, f"{filename}.npy")
+#     np.save(target_eeg_path, synthetic_eeg)
+#     return target_eeg_path
 
 def get_selected_channel_idxes(data, fs=250):
     """

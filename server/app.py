@@ -6,9 +6,12 @@ import os
 import random
 import shutil
 import time
+proxy = 'http://10.16.66.33:7890'
+os.environ['http_proxy'] = proxy
+os.environ['https_proxy'] = proxy
 
-from server.modulation_utils import *
-from server.modulation import fusion_image_to_images
+# from modulation_utils import *
+# from modulation import fusion_image_to_images
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -17,8 +20,8 @@ image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_i
 pre_eeg_path = 'server/pre_eeg'
 instant_eeg_path = 'server/instant_eeg'
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
+# device = "cuda:0" if torch.cuda.is_available() else "cpu"
+# model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
 
 num_loop_random = 1
 subject_id = 1 
@@ -243,7 +246,7 @@ def experiment():
     socketio.stop()
 
 
-@socketio.on('/instant_eeg_upload', methods=['POST'])
+@app.route('/instant_eeg_upload', methods=['POST'])
 def process_instant_eeg():
     if 'files' not in request.files:
         return jsonify({"message": "No file part"}), 400
@@ -268,6 +271,7 @@ def process_instant_eeg():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
+    SocketIO.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -303,5 +307,5 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=55565)
-    SocketIO.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
+
 
