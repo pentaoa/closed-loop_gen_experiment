@@ -13,30 +13,34 @@ import socketio
 pre_eeg_path = f'client/pre_eeg'
 instant_eeg_path = f'client/instant_eeg'
 instant_image_path = f'client/instant_image'
-image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'
+image_set_path = "\\10.20.37.22\dataset0\ldy\test"
 
 selected_channels = []
 target_image = None
 
 sio = socketio.Client()
 
-@sio.event
-def connect():
-    print('Connected to server')
-    view.display_text('Connected to server')
-    time.sleep(1)
+# @sio.event
+# def connect():
+#     print('Connected to server')
+#     time.sleep(1)
 
 @sio.event
 def connect_error():
     print('Failed to connect to server')
     view.display_text('Failed to connect to server')
-    time.sleep(5)
+    time.sleep(3)
     pg.quit()
     quit()
 
 @sio.event
+def connect_failed():
+    view.display_text('Failed to connect')
+
+@sio.event
 def pre_experiment_ready(data):
     print(data['message'])
+    print("****************************************")
     controller.start_pre_experiment(image_set_path, pre_eeg_path)
 
     # 发送 pre_eeg_path 中的所有 npy 文件到服务器
@@ -91,6 +95,7 @@ def experiment_finished(data):
     sio.disconnect()
 
 if __name__ == '__main__':
+    global controller
     model = Model()
     view = View()
     controller = Controller(model, view)

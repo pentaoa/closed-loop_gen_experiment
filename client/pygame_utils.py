@@ -5,9 +5,9 @@ import pygame as pg
 import time
 import gc
 
-from Jellyfish_Python_API.neuracle_api import DataServerThread
-from neuracle_lib.triggerBox import TriggerBox, PackageSensorPara
-from client.eeg_process import save_raw, create_event_based_npy
+from neuracle_api import DataServerThread
+from triggerBox import TriggerBox, PackageSensorPara
+from eeg_process import save_raw, create_event_based_npy
 
 class Model:
     def __init__(self):
@@ -17,7 +17,7 @@ class Model:
         self.t_buffer = 1000
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
-        self.triggerbox = TriggerBox("COM4")
+        self.triggerbox = TriggerBox("COM3")
 
     def start_data_collection(self):
         notConnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
@@ -113,7 +113,7 @@ class Controller:
 
     def run(self):
         running = True
-        self.model.start_data_collection()
+        # self.model.start_data_collection()
         while running:
             for event in pg.event.get():
                 if event.type == pg.QUIT:
@@ -121,6 +121,7 @@ class Controller:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         running = False
+                        
 
         # 在实验循环结束后停止数据收集并保存数据
         self.model.stop_data_collection()
@@ -128,23 +129,15 @@ class Controller:
         gc.collect()
         quit()
 
-    def wait_for_connection(self):
-        self.view.display_waiting_screen()
-
-    def wait_for_space(self):
-        waiting = True
-        while waiting:
-            for event in pg.event.get():
-                if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
-                    waiting = False
 
     def start_pre_experiment(self, image_set_path, pre_eeg_path):
-        self.view.display_text('Press SPACE to start')
-        self.wait_for_space()
-        time.sleep(0.75)  # 500ms 黑屏
-                # 获取所有文件夹
+        self.view.display_text('Ready to start')
+        time.sleep(3)
+        self.model.start_data_collection()
+        # 获取所有文件夹
         folders = sorted(os.listdir(image_set_path))
         image_label_pairs = []
+        time.sleep(0.75)  # 500ms 黑屏
 
         for folder in folders:
             folder_path = os.path.join(image_set_path, folder)
@@ -167,13 +160,15 @@ class Controller:
                 time.sleep(1)  # 每十个给一个长一点的间隔
 
         # 采集结束，分析数据
+        self.model.stop_data_collection()
         self.view.display_text('Pre-experiment finished')
         self.model.save_pre_eeg(pre_eeg_path)
         self.view.display_text('Sata saved')
 
     def start_collection(self, instant_image_path, instant_eeg_path):
-        self.view.display_text('Press SPACE to start')
-        self.wait_for_space()
+        self.view.display_text('Ready to start')
+        time.sleep(3)
+        self.model.start_data_collection()
         time.sleep(0.75)
 
         # 获取 instant_image_path 下的所有图片
@@ -212,7 +207,7 @@ class View:
         self.font = pg.font.Font(None, 32)
 
     def display_text(self, text):
-        self.screen.fill((30, 30, 30))
+        self.screen.fill((0, 0, 0))
         text_surface = self.font.render(text, True, (255, 255, 255))
         self.screen.blit(text_surface, (self.screen.get_width() // 2 - text_surface.get_width() // 2,
                                         self.screen.get_height() // 2 - text_surface.get_height() // 2))
@@ -236,12 +231,12 @@ class View:
         # 更新屏幕显示
         pg.display.flip()
 
-    def display_text(self, text, position):
-        # 使用指定的中文字体渲染文本
-        font = pg.font.Font(self.font_path, 50)
-        text_surface = font.render(text, True, (255, 255, 255))
-        self.screen.blit(text_surface, position)
-        pg.display.flip()
+    # def display_text(self, text, position):
+    #     # 使用指定的中文字体渲染文本
+    #     font = pg.font.Font(self.font_path, 50)
+    #     text_surface = font.render(text, True, (255, 255, 255))
+    #     self.screen.blit(text_surface, position)
+    #     pg.display.flip()
 
     def clear_screen(self):
         self.screen.fill((0, 0, 0))
