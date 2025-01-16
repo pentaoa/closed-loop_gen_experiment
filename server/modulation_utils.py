@@ -139,7 +139,7 @@ def get_selected_channel_idxes(data, fs=250):
     
     return selected_channel_idxes
 
-def get_target_image(data, selected_channel_idxes, fs=250):
+def get_target_image_index(data, selected_channel_idxes, fs=250):
     """
     :param selected_channel_idxes: 使用具有最大视觉特征的通道
     :param data: (n_samples, n_channels, n_timepoints)

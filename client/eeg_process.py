@@ -5,7 +5,6 @@ from sklearn.utils import shuffle
 import scipy
 from sklearn.discriminant_analysis import _cov
 
-data_type = [ 'passive_data', 'active_data']
 
 def preprocessing(raw_data): 
     ch_names = [
@@ -235,40 +234,68 @@ def npy2raw(input_path):
     raw = mne.io.RawArray(data, info)
     return raw
 
+def save_raw(original_data_path, preprocess_data_path):
+    # 读取原始数据文件
+    raw_data = npy2raw(original_data_path)
+    raw_data = preprocessing(raw_data)
+    print(f'Processing: {original_data_path}')
+    
+    # 从 Raw 对象中提取数据
+    d, times = raw_data[:, :]
+    
+    # 保存数据为 .npy 格式
+    os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
+    np.save(preprocess_data_path, d)
 
-def save_raw(new_dir, preprocessed_dir):
-    subjects_list = os.listdir(data_dir)
-    # print(len(subjects_list))
-    for subject in subjects_list:
-        # try:
-        cls_list = os.listdir(os.path.join(new_dir, subject, data_type[1]))
-        for cls in cls_list:                                
-            cls_path = os.path.join(new_dir, subject, data_type[1], cls)
-            data_list = os.listdir(cls_path)
-            i = 0
-            for data in data_list:                    
-                data_path = os.path.join(new_dir, subject, data_type[1], cls, data)
-                raw_data = npy2raw(data_path)
-                raw_data = preprocessing(raw_data)
-                print(data_path)
-                # 保存为.npy格式
-                # 从 Raw 对象中提取数据
-                d, times = raw_data[:, :]
-                # 保存数据为 .npy 格式
-                
-                save_path = os.path.join(preprocessed_dir, subject, data_type[1], cls, data)                                     
-                os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                # print(save_path)              
-                
-                np.save(f'{save_path}', d)                     
-                i+=1
-                # print(file_path)
-        # except Exception as e:
-        #     print(e)
-    # 保存为.fif格式
-    # raw.save('output.fif', overwrite=True)
+# # 创建基于事件的数据，生成三维数组，第一维是事件，第二维是通道，第三维是时间点
+# def create_event_based_npy(original_data_path, preprocess_data_path, output_data_path):
+#     # 读取原始数据
+#     raw_data = np.load(original_data_path)
+#     events = raw_data[64, :]  # 第65行存储event信息
 
-data_dir = r"C:\Users\Grada\Desktop\enriched_data"
-preprocessed_dir = r"C:\Users\Grada\Desktop\preprocessed_data"
-save_raw(data_dir, preprocessed_dir)
+#     # 读取预处理后的数据
+#     preprocessed_data = np.load(preprocess_data_path)
+    
+#     event_based_data = []
+#     # 找到所有非零的event索引
+#     event_indices = np.where(events > 0)[0]
+#     print(event_indices)
 
+#     # 将原始数据的索引转换为降采样后的索引
+#     event_indices = event_indices // 4
+#     for idx in event_indices:
+#         if idx + 25 <= preprocessed_data.shape[1]:  # 确保索引不越界
+#             # 取出event后250个时间点的数据，对应 1 秒
+#             event_data = preprocessed_data[:64, idx:idx + 25]
+#             event_based_data.append(event_data)
+    
+#     # 将事件数据转换为NumPy数组
+#     event_based_data = np.array(event_based_data)
+    
+#     # 保存事件数据为新的.npy文件
+#     os.makedirs(os.path.dirname(output_data_path), exist_ok=True)
+#     np.save(output_data_path, event_based_data)
+
+
+def create_event_based_npy(original_data_path, preprocess_data_path, output_data_dir):
+    # 读取原始数据
+    raw_data = np.load(original_data_path)
+    events = raw_data[64, :]  # 第65行存储event信息
+
+    # 读取预处理后的数据
+    preprocessed_data = np.load(preprocess_data_path)
+    
+    # 找到所有非零的event索引
+    event_indices = np.where(events > 0)[0]
+
+    # 将原始数据的索引转换为降采样后的索引
+    event_indices = event_indices // 4
+    for idx, event_idx in enumerate(event_indices):
+        if event_idx + 25 <= preprocessed_data.shape[1]:  # 确保索引不越界
+            # 取出 event后 25 个时间点的数据，对应 0.1 秒
+            event_data = preprocessed_data[:64, event_idx:event_idx + 25]
+            
+            # 保存每个事件数据为单独的.npy文件
+            event_output_path = os.path.join(output_data_dir, f'{idx+1}.npy')
+            os.makedirs(os.path.dirname(event_output_path), exist_ok=True)
+            np.save(event_output_path, event_data)

@@ -7,11 +7,11 @@ import gc
 
 from Jellyfish_Python_API.neuracle_api import DataServerThread
 from neuracle_lib.triggerBox import TriggerBox, PackageSensorPara
+from client.eeg_process import save_raw, create_event_based_npy
 
 class Model:
     def __init__(self):
         self.current_phase = 'waiting'
-        self.current_task_index = 0
         self.current_sequence = 0
         self.sample_rate = 1000
         self.t_buffer = 1000
@@ -43,6 +43,36 @@ class Model:
         data = self.thread_data_server.GetBufferData()
         np.save(f'JiahaoTest/{time.strftime("%Y%m%d-%H%M%S")}-data-{npy_index}.npy', data)
         print("Data saved!")
+
+    def save_pre_eeg(self, pre_eeg_path):
+        original_data_path = os.path.join(pre_eeg_path, f'original/{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        preprocess_data_path = os.path.join(pre_eeg_path, f'preprocessed/{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        data = self.thread_data_server.GetBufferData()
+        np.save(original_data_path, data)
+        print("Pre-experiment data saved!")
+
+        # 进行数据预处理
+        save_raw(original_data_path, preprocess_data_path)
+        print("Pre-experiment data preprocessed!")
+
+        # 数据 event-based 处理
+        create_event_based_npy(original_data_path, preprocess_data_path, pre_eeg_path)
+        
+        
+    def save_instant_eeg(self, instant_eeg_path):
+        original_data_path = os.path.join(instant_eeg_path, f'original/{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed/{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        data = self.thread_data_server.GetBufferData()
+        np.save(original_data_path, data)
+        print("Pre-experiment data saved!")
+
+        # 进行数据预处理
+        save_raw(original_data_path, preprocess_data_path)
+        print("Pre-experiment data preprocessed!")
+
+        # 数据 event-based 处理
+        create_event_based_npy(original_data_path, preprocess_data_path, instant_eeg_path)
+
 
     def get_next_sequence(self):
         # 确保不会超出列表范围
@@ -100,26 +130,61 @@ class Controller:
                 if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
                     waiting = False
 
-    def start_pre_experiment(self):
-        self.view.display_text('Press SPACE to start', (50, 50))
+    def start_pre_experiment(self, image_set_path, pre_eeg_path):
+        self.view.display_text('Press SPACE to start')
         self.wait_for_space()
         time.sleep(0.75)  # 500ms 黑屏
-        image_and_index = self.model.get_next_sequence()
-        for image_index_pair in image_and_index:
-            image, label = image_index_pair
-            print("label: ", label)
+                # 获取所有文件夹
+        folders = sorted(os.listdir(image_set_path))
+        image_label_pairs = []
+
+        for folder in folders:
+            folder_path = os.path.join(image_set_path, folder)
+            if os.path.isdir(folder_path):
+                label = int(folder.split('_')[0]) # 设置 label 编号
+                image_files = os.listdir(folder_path)
+                if image_files:
+                    image_path = os.path.join(folder_path, image_files[0])
+                    image_label_pairs.append((image_path, label))
+
+        # 开始采集
+        for i, (image, label) in enumerate(image_label_pairs):
             self.view.display_image(image)
             self.model.trigger(label)  # 使用图像的类别编号发送触发器
             time.sleep(0.1)
             self.view.display_fixation()
             time.sleep(0.1)
-        if self.model.current_sequence >= self.model.total_sequences:
-            self.end_experiment()
-        else:
-            self.black_screen_post()
+            if (i + 1) % 10 == 0:
+                self.view.clear_screen()
+                time.sleep(1)  # 每十个给一个长一点的间隔
 
+        # 采集结束，分析数据
+        self.view.display_text('Pre-experiment finished')
+        self.model.save_pre_eeg(pre_eeg_path)
+        self.view.display_text('Sata saved')
+
+    def start_collection(self, instant_image_path, instant_eeg_path):
+        self.view.display_text('Press SPACE to start')
+        self.wait_for_space()
+        time.sleep(0.75)
+
+        # 获取 instant_image_path 下的所有图片
+        image_files = sorted(os.listdir(instant_image_path))
+        for i, image_file in enumerate(image_files):
+            image_path = os.path.join(instant_image_path, image_file)
+            self.view.display_image(image_path)
+            self.model.trigger(i + 1)  # 使用图像的索引发送触发器
+            time.sleep(0.1)
+            if (i + 1) % 10 == 0:
+                time.sleep(1)  # 每十个间隔一下
+        
+        self.view.display_text('Finished')
+        self.model.save_instant_eeg(instant_eeg_path)
+        self.view.display_text('Data saved')
+
+        
     def start_experiment(self):
-        self.view.display_text('Press SPACE to start', (50, 50))
+        self.view.display_text('Press SPACE to start')
         self.wait_for_space()
         time.sleep(0.75)  # 500ms 黑屏
         image_and_index = self.model.get_next_sequence()
@@ -153,14 +218,14 @@ class Controller:
         self.model.save_data(self.model.npy_index)  # 保存数据
         pg.quit()
         gc.collect()
-        quit()    
+        quit()
 
 
 class View:
     def __init__(self):
         pg.init()
         self.screen = pg.display.set_mode((1200, 900))
-        pg.display.set_caption('ExperimentTask')
+        pg.display.set_caption('Closed Loop Experiment')
         self.font = pg.font.Font(None, 32)
 
     def display_text(self, text):

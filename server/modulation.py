@@ -11,15 +11,15 @@ sys.path.append(parent_dir)
 from eeg_encoding_utils import generate_and_save_eeg_for_all_images, generate_eeg_for_image
 import matplotlib.pyplot as plt
 from custom_pipeline import *
-from modulation_utils import *
+from server.modulation_utils import *
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
 fs = 250
 selected_channel_idxes = [3, 4, 5]  # 'O1', 'Oz', 'O2'
 
-#vlmodel, preprocess_train, feature_extractor = load_vlmodel(model_weights_path=model_weights_path, device=device)
-#generator = Generator4Embeds(guidance_scale=2.0, num_inference_steps=4, device=device)
+vlmodel, preprocess_train, feature_extractor = load_vlmodel(model_weights_path=model_weights_path, device=device)
+generator = Generator4Embeds(guidance_scale=2.0, num_inference_steps=4, device=device)
 
 def fusion_image_to_images(image_gt_paths, num_images, device, save_path, scale):
     img_embeds = []
