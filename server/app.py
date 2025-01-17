@@ -6,9 +6,6 @@ import os
 import random
 import shutil
 import time
-proxy = 'http://10.16.66.33:7890'
-os.environ['http_proxy'] = proxy
-os.environ['https_proxy'] = proxy
 
 # from modulation_utils import *
 # from modulation import fusion_image_to_images
