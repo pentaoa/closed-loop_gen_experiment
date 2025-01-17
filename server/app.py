@@ -7,8 +7,8 @@ import random
 import shutil
 import time
 
-# from modulation_utils import *
-# from modulation import fusion_image_to_images
+from modulation_utils import *
+from modulation import fusion_image_to_images
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -17,8 +17,8 @@ image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_i
 pre_eeg_path = 'server/pre_eeg'
 instant_eeg_path = 'server/instant_eeg'
 
-# device = "cuda:0" if torch.cuda.is_available() else "cpu"
-# model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
 
 num_loop_random = 1
 subject_id = 1 
@@ -270,7 +270,8 @@ def handle_connect(auth):
     print('Client connected')
     print('Send: pre_experiment_ready')
     # socketio.emit('connection_test', {'message': 'Connection test'})
-    socketio.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
+    # socketio.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
+    socketio.emit('experiment_ready', {'message': 'Experiment is ready'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
