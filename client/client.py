@@ -10,10 +10,10 @@ import pygame as pg
 from pygame_utils import Model, View, Controller
 import socketio
 
-pre_eeg_path = f'client/pre_eeg'
-instant_eeg_path = f'client/instant_eeg'
-instant_image_path = f'client/instant_image'
-image_set_path = "\\10.20.37.22\dataset0\ldy\test"
+pre_eeg_path = f'client\pre_eeg'
+instant_eeg_path = f'client\instant_eeg'
+instant_image_path = f'client\instant_image'
+image_set_path = "img_set"
 
 selected_channels = []
 target_image = None
@@ -39,12 +39,11 @@ def connect_failed():
 
 @sio.event
 def pre_experiment_ready(data):
-    print(data['message'])
-    print("****************************************")
+    time.sleep(5)
     controller.start_pre_experiment(image_set_path, pre_eeg_path)
-
+    print('Start data sending')
     # 发送 pre_eeg_path 中的所有 npy 文件到服务器
-    url = 'http://10.20.37.38:55565/pre_experiment_eeg_upload'
+    url = 'http://10.20.37.212:55565/pre_experiment_eeg_upload'
 
     files = []
     for filename in os.listdir(pre_eeg_path):
@@ -58,9 +57,9 @@ def pre_experiment_ready(data):
 @sio.event
 def experiment_ready(data):
     print(data['message'])
-    time.sleep(2)
+    time.sleep(1)
     # 向服务器发送开始实验的信号
-    url = 'http://10.20.37.38:55565/experiment'
+    url = 'http://10.20.37.212:55565/experiment'
     requests.post(url)
 
 @sio.event
@@ -75,17 +74,18 @@ def images_received(data):
         image.save(image_save_path)
         print(f'Image saved to {image_save_path}')
 
-    # 启动实验    
+    time.sleep(2)
+    # 启动实验
     controller.start_collection(instant_image_path, instant_eeg_path)
     
     # 发送 instant_eeg_path 中的所有 npy 文件到服务器
-    url = 'http://10.20.37.38:55565/instant_eeg_upload'
+    url = 'http://10.20.37.212:55565/instant_eeg_upload'
     files = []
     for filename in os.listdir(instant_eeg_path):
         if filename.endswith('.npy'):
             file_path = os.path.join(instant_eeg_path, filename)
             with open(file_path, 'rb') as f:
-                files.append(('files', (filename, f, 'application/octet-stream')))
+                files.append(('files', (filename, f, 'application\octet-stream')))
     
     response = requests.post(url, files=files)
 
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     controller = Controller(model, view)
 
 
-    sio.connect('http://10.20.37.38:55565')
+    sio.connect('http://10.20.37.212:55565')
 
     controller.run()
 

@@ -3,7 +3,8 @@ cornet/
 exp_sub7/
 sdxl-turbo/
 target_eeg/
-pre_exp_eeg/
+client/pre_eeg/
+img_set/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

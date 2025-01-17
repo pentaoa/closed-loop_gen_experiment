@@ -4,10 +4,14 @@ import numpy as np
 import pygame as pg
 import time
 import gc
+import threading
 
 from neuracle_api import DataServerThread
 from triggerBox import TriggerBox, PackageSensorPara
 from eeg_process import save_raw, create_event_based_npy
+
+def save_raw_thread(original_data_path, preprocess_data_path):
+    save_raw(original_data_path, preprocess_data_path)
 
 class Model:
     def __init__(self):
@@ -26,6 +30,7 @@ class Model:
                 time.sleep(1)
                 continue
             self.thread_data_server.start()
+            print("Data collection started.")
 
     def trigger(self, label):
         code = int(label)  # 直接将传入的类别编号转换为整数
@@ -46,20 +51,22 @@ class Model:
         self.flagstop = True
         self.thread_data_server.stop()
 
-    def save_data(self, npy_index):
-        data = self.thread_data_server.GetBufferData()
-        np.save(f'JiahaoTest/{time.strftime("%Y%m%d-%H%M%S")}-data-{npy_index}.npy', data)
-        print("Data saved!")
-
     def save_pre_eeg(self, pre_eeg_path):
-        original_data_path = os.path.join(pre_eeg_path, f'original/{time.strftime("%Y%m%d-%H%M%S")}.npy')
-        preprocess_data_path = os.path.join(pre_eeg_path, f'preprocessed/{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        original_data_path = os.path.join(pre_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        preprocess_data_path = os.path.join(pre_eeg_path, f'preprocessed\{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(original_data_path), exist_ok=True)
+        os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
+
         data = self.thread_data_server.GetBufferData()
         np.save(original_data_path, data)
         print("Pre-experiment data saved!")
 
         # 进行数据预处理
-        save_raw(original_data_path, preprocess_data_path)
+        save_thread = threading.Thread(target=save_raw_thread, args=(original_data_path, preprocess_data_path))
+        save_thread.start()
+        save_thread.join()
         print("Pre-experiment data preprocessed!")
 
         # 数据 event-based 处理
@@ -67,8 +74,13 @@ class Model:
         
         
     def save_instant_eeg(self, instant_eeg_path):
-        original_data_path = os.path.join(instant_eeg_path, f'original/{time.strftime("%Y%m%d-%H%M%S")}.npy')
-        preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed/{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        original_data_path = os.path.join(instant_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed\{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(original_data_path), exist_ok=True)
+        os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)        
+        
         data = self.thread_data_server.GetBufferData()
         np.save(original_data_path, data)
         print("Pre-experiment data saved!")
@@ -111,7 +123,6 @@ class Controller:
 
     def run(self):
         running = True
-        # self.model.start_data_collection()
         while running:
             for event in pg.event.get():
                 if event.type == pg.QUIT:
@@ -120,21 +131,19 @@ class Controller:
                     if event.key == pg.K_ESCAPE:
                         running = False
                         
-
-        # 在实验循环结束后停止数据收集并保存数据
-        self.model.stop_data_collection()
         pg.quit()
         gc.collect()
         quit()
 
 
     def start_pre_experiment(self, image_set_path, pre_eeg_path):
-        self.view.display_text('Ready to start')
+        self.view.display_text('Ready to start pre-experiment')
         time.sleep(3)
-        self.model.start_data_collection()
+        self.model.start_data_collection()        
         # 获取所有文件夹
         folders = sorted(os.listdir(image_set_path))
         image_label_pairs = []
+
         time.sleep(0.75)  # 500ms 黑屏
 
         for folder in folders:
@@ -142,20 +151,19 @@ class Controller:
             if os.path.isdir(folder_path):
                 label = int(folder.split('_')[0]) # 设置 label 编号
                 image_files = os.listdir(folder_path)
-                if image_files:
-                    image_path = os.path.join(folder_path, image_files[0])
-                    image_label_pairs.append((image_path, label))
-
-        # 开始采集
-        for i, (image, label) in enumerate(image_label_pairs):
-            self.view.display_image(image)
-            self.model.trigger(label)  # 使用图像的类别编号发送触发器
-            time.sleep(0.1)
-            self.view.display_fixation()
-            time.sleep(0.1)
-            if (i + 1) % 10 == 0:
-                self.view.clear_screen()
-                time.sleep(1)  # 每十个给一个长一点的间隔
+                print("label: ", label)
+                print("image_files: ", image_files)
+                image_path = os.path.join(folder_path, image_files[0])
+                print("image_path: ", image_path)
+                image = pg.image.load(image_path)
+                self.view.display_image(image)
+                self.model.trigger(label)
+                time.sleep(0.1)
+                self.view.display_fixation()
+                time.sleep(0.1)
+                if label  % 10 == 0:
+                    self.view.clear_screen()
+                    time.sleep(1)
 
         # 采集结束，分析数据
         self.model.stop_data_collection()
@@ -172,13 +180,13 @@ class Controller:
         # 获取 instant_image_path 下的所有图片
         image_files = sorted(os.listdir(instant_image_path))
         for i, image_file in enumerate(image_files):
-            image_path = os.path.join(instant_image_path, image_file)
-            self.view.display_image(image_path)
+            self.view.display_image(image_file)
             self.model.trigger(i + 1)  # 使用图像的索引发送触发器
             time.sleep(0.1)
             if (i + 1) % 10 == 0:
                 time.sleep(1)  # 每十个间隔一下
         
+        self.model.stop_data_collection()
         self.view.display_text('Finished')
         self.model.save_instant_eeg(instant_eeg_path)
         self.view.display_text('Data saved')
@@ -200,9 +208,9 @@ class Controller:
 class View:
     def __init__(self):
         pg.init()
-        self.screen = pg.display.set_mode((1200, 900))
+        self.screen = pg.display.set_mode((1000, 1000))
         pg.display.set_caption('Closed Loop Experiment')
-        self.font = pg.font.Font(None, 32)
+        self.font = pg.font.Font(None, 40)
 
     def display_text(self, text):
         self.screen.fill((0, 0, 0))
@@ -214,18 +222,21 @@ class View:
     def display_fixation(self):
         self.screen.fill((0, 0, 0))  # 清屏
         # 绘制红色圆
-        pg.draw.circle(self.screen, (255, 0, 0), (600, 450), 30, 0)
+        pg.draw.circle(self.screen, (200, 0, 0), (500, 500), 30, 0)
         # 绘制黑色十字
-        pg.draw.line(self.screen, (0, 0, 0), (575, 450), (625, 450), 10)
-        pg.draw.line(self.screen, (0, 0, 0), (600, 425), (600, 475), 10)
+        pg.draw.line(self.screen, (0, 0, 0), (325, 500), (675, 500), 5)
+        pg.draw.line(self.screen, (0, 0, 0), (500, 325), (500, 675), 5)
         pg.display.flip()
 
     def display_image(self, image):
+        # 缩放图片到屏幕大小
+        image = pg.transform.scale(image, (1000, 1000))
         self.screen.blit(image, (0, 0))
-        pg.draw.circle(self.screen, (255, 0, 0), (600, 450), 30, 0)
-        pg.draw.line(self.screen, (0, 0, 0), (575, 450), (625, 450), 10)
-        pg.draw.line(self.screen, (0, 0, 0), (600, 425), (600, 475), 10)
-
+        # 绘制红色圆
+        pg.draw.circle(self.screen, (200, 0, 0), (500, 500), 30, 0)
+        # 绘制黑色十字
+        pg.draw.line(self.screen, (0, 0, 0), (425, 500), (575, 500), 5)
+        pg.draw.line(self.screen, (0, 0, 0), (500, 425), (500, 575), 5)
         # 更新屏幕显示
         pg.display.flip()
 
