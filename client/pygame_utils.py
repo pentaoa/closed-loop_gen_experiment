@@ -16,7 +16,7 @@ def save_raw_thread(original_data_path, preprocess_data_path):
 class Model:
     def __init__(self):
         self.sample_rate = 1000
-        self.t_buffer = 300
+        self.t_buffer = 100
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM3")
@@ -122,6 +122,7 @@ class Controller:
         self.view = view
 
     def run(self):
+        self.model.start_data_collection()
         running = True
         while running:
             for event in pg.event.get():
@@ -137,13 +138,11 @@ class Controller:
 
 
     def start_pre_experiment(self, image_set_path, pre_eeg_path):
-        self.view.display_text('Ready to start pre-experiment')
+        # self.view.display_text('Ready to start pre-experiment')
         time.sleep(3)
         self.model.start_data_collection()        
         # 获取所有文件夹
         folders = sorted(os.listdir(image_set_path))
-        image_label_pairs = []
-
         time.sleep(0.75)  # 500ms 黑屏
 
         for folder in folders:
@@ -166,7 +165,7 @@ class Controller:
                     time.sleep(1)
 
         # 采集结束，分析数据
-        self.model.stop_data_collection()
+        # self.model.stop_data_collection()
         self.view.display_text('Pre-experiment finished')
         self.model.save_pre_eeg(pre_eeg_path)
         self.view.display_text('Sata saved')
@@ -174,20 +173,23 @@ class Controller:
     def start_collection(self, instant_image_path, instant_eeg_path):
         self.view.display_text('Ready to start')
         time.sleep(3)
-        self.model.start_data_collection()
-        time.sleep(0.75)
-
+        # self.model.start_data_collection()
+        time.sleep(0.75)  # 750ms 黑屏
         # 获取 instant_image_path 下的所有图片
         image_files = sorted(os.listdir(instant_image_path))
-        for i, image_file in enumerate(image_files):
-            self.view.display_image(image_file)
-            self.model.trigger(i + 1)  # 使用图像的索引发送触发器
+        for idx, image_file in enumerate(image_files):
+            image_path = os.path.join(instant_image_path, image_file)
+            image = pg.image.load(image_path)  # 加载图像
+            self.view.display_image(image)
+            self.model.trigger(idx + 1)  # 使用图像的索引发送触发器
             time.sleep(0.1)
-            if (i + 1) % 10 == 0:
+            self.view.display_fixation()
+            time.sleep(0.1)
+            if (idx + 1) % 10 == 0:
                 time.sleep(1)  # 每十个间隔一下
         
-        self.model.stop_data_collection()
-        self.view.display_text('Finished')
+        # self.model.stop_data_collection()
+        self.view.display_text('Processing...')
         self.model.save_instant_eeg(instant_eeg_path)
         self.view.display_text('Data saved')
 

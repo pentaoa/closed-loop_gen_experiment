@@ -464,7 +464,7 @@ class DataServerThread:
         self.hostname = hostname
         self.port = port
         # 重连次数
-        reconnect_time = 0
+        reconnect_time = 10
         # 一直尝试连接下去，直到连接成功
         while self.state == ConnectState.NOTCONNECT:
             try:

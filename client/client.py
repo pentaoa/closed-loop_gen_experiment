@@ -9,6 +9,7 @@ import time
 import pygame as pg
 from pygame_utils import Model, View, Controller
 import socketio
+import shutil
 
 pre_eeg_path = f'client\pre_eeg'
 instant_eeg_path = f'client\instant_eeg'
@@ -18,12 +19,35 @@ image_set_path = "img_set"
 selected_channels = []
 target_image = None
 
+
+url = 'http://10.20.37.38:45565'
+
 sio = socketio.Client()
 
 # @sio.event
 # def connect():
 #     print('Connected to server')
 #     time.sleep(1)
+
+def send_files_to_server(pre_eeg_path, url):
+    files = []
+    file_objects = []
+
+    try:
+        for filename in os.listdir(pre_eeg_path):
+            if filename.endswith('.npy'):
+                file_path = os.path.join(pre_eeg_path, filename)
+                f = open(file_path, 'rb')
+                file_objects.append(f)
+                files.append(('files', (filename, f, 'application/octet-stream')))
+
+        response = requests.post(url, files=files)
+        print("Files sent successfully")
+    finally:
+        # 确保所有文件在请求完成后被关闭
+        for f in file_objects:
+            f.close()
+
 
 @sio.event
 def connect_error():
@@ -39,31 +63,29 @@ def connect_failed():
 
 @sio.event
 def pre_experiment_ready(data):
-    time.sleep(5)
-    controller.start_pre_experiment(image_set_path, pre_eeg_path)
+    time.sleep(4)
+    # controller.start_pre_experiment(image_set_path, pre_eeg_path)
     print('Start data sending')
     # 发送 pre_eeg_path 中的所有 npy 文件到服务器
-    url = 'http://10.20.37.212:55565/pre_experiment_eeg_upload'
+    send_url = f'{url}/pre_experiment_eeg_upload'
 
-    files = []
-    for filename in os.listdir(pre_eeg_path):
-        if filename.endswith('.npy'):
-            file_path = os.path.join(pre_eeg_path, filename)
-            with open(file_path, 'rb') as f:
-                files.append(('files', (filename, f, 'application/octet-stream')))
-    
-    response = requests.post(url, files=files)
+    send_files_to_server(pre_eeg_path, send_url)
 
 @sio.event
-def experiment_ready(data):
-    print(data['message'])
+def experiment_ready():
     time.sleep(1)
     # 向服务器发送开始实验的信号
-    url = 'http://10.20.37.212:55565/experiment'
-    requests.post(url)
+    send_url = f'{url}/experiment'
+    requests.post(send_url)
 
 @sio.event
 def images_received(data):
+    os.makedirs(instant_image_path, exist_ok=True)
+    os.makedirs(instant_eeg_path, exist_ok=True)
+    # 删除 instant_image_path 和 instant_eeg_path 中的所有文件
+    shutil.rmtree(instant_image_path)
+    shutil.rmtree(instant_eeg_path)    
+    print('Images received')
     images = data['images']
     for idx, encoded_string in enumerate(images):
         image_data = base64.b64decode(encoded_string)
@@ -73,21 +95,19 @@ def images_received(data):
         os.makedirs(instant_image_path, exist_ok=True)
         image.save(image_save_path)
         print(f'Image saved to {image_save_path}')
+    
+    print('All images saved')
 
     time.sleep(2)
     # 启动实验
     controller.start_collection(instant_image_path, instant_eeg_path)
     
     # 发送 instant_eeg_path 中的所有 npy 文件到服务器
-    url = 'http://10.20.37.212:55565/instant_eeg_upload'
-    files = []
-    for filename in os.listdir(instant_eeg_path):
-        if filename.endswith('.npy'):
-            file_path = os.path.join(instant_eeg_path, filename)
-            with open(file_path, 'rb') as f:
-                files.append(('files', (filename, f, 'application\octet-stream')))
-    
-    response = requests.post(url, files=files)
+    send_url = f'{url}/instant_eeg_upload'
+    send_files_to_server(instant_eeg_path, send_url)
+
+
+
 
 @sio.event
 def experiment_finished(data):
@@ -103,7 +123,7 @@ if __name__ == '__main__':
     controller = Controller(model, view)
 
 
-    sio.connect('http://10.20.37.212:55565')
+    sio.connect(url)
 
     controller.run()
 

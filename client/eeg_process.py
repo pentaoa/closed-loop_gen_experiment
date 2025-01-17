@@ -29,16 +29,16 @@ def preprocessing(raw_data):
 
 
     raw_data.resample(250)
-    powerline_frequency = 50
-    raw_data.notch_filter(freqs=powerline_frequency, picks='eeg', notch_widths=1.0, trans_bandwidth=1.0, method='spectrum_fit', filter_length='auto')
-    raw_data.filter(1, 100)
+    # powerline_frequency = 50
+    # raw_data.notch_filter(freqs=powerline_frequency, picks='eeg', notch_widths=1.0, trans_bandwidth=1.0, method='spectrum_fit', filter_length='auto')
+    # raw_data.filter(1, 100)
 
-    picks_eeg = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False)
-    ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
-    ica.fit(raw_data, picks=picks_eeg)
+    # picks_eeg = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False)
+    # ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
+    # ica.fit(raw_data, picks=picks_eeg)
     
-    ica.exclude = [0]
-    ica.apply(raw_data)
+    # ica.exclude = [0]
+    # ica.apply(raw_data)
 
     scalings = {'eeg': 1e6}
     return raw_data
