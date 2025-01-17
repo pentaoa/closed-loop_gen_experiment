@@ -50,7 +50,8 @@ def pre_experiment_ready(data):
     for filename in os.listdir(pre_eeg_path):
         if filename.endswith('.npy'):
             file_path = os.path.join(pre_eeg_path, filename)
-            files.append(('files', (filename, open(file_path, 'rb'), 'application/octet-stream')))
+            with open(file_path, 'rb') as f:
+                files.append(('files', (filename, f, 'application/octet-stream')))
     
     response = requests.post(url, files=files)
 
@@ -83,7 +84,8 @@ def images_received(data):
     for filename in os.listdir(instant_eeg_path):
         if filename.endswith('.npy'):
             file_path = os.path.join(instant_eeg_path, filename)
-            files.append(('files', (filename, open(file_path, 'rb'), 'application/octet-stream')))
+            with open(file_path, 'rb') as f:
+                files.append(('files', (filename, f, 'application/octet-stream')))
     
     response = requests.post(url, files=files)
 

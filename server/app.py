@@ -269,9 +269,11 @@ def process_instant_eeg():
     }), 200
 
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth):
     print('Client connected')
-    SocketIO.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
+    print('Send: pre_experiment_ready')
+    # socketio.emit('connection_test', {'message': 'Connection test'})
+    socketio.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
 
 @socketio.on('disconnect')
 def handle_disconnect():

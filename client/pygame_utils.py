@@ -11,10 +11,8 @@ from eeg_process import save_raw, create_event_based_npy
 
 class Model:
     def __init__(self):
-        self.current_phase = 'waiting'
-        self.current_sequence = 0
         self.sample_rate = 1000
-        self.t_buffer = 1000
+        self.t_buffer = 300
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM3")
