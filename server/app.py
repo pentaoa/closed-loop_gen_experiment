@@ -14,24 +14,29 @@ app = Flask(__name__)
 socketio = SocketIO(app)
 
 image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'
-pre_eeg_path = 'server/pre_eeg'
+pre_eeg_path = 'server/pre_eeg' # TODO:修改！
 instant_eeg_path = 'server/instant_eeg'
-
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
 
 num_loop_random = 1
 subject_id = 1 
 num_loops = 10
 sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02')) # 如果 subject_id 大于或等于 10，直接使用其值；如果小于 10，则将其格式化为两位数字（如 01, 02）。
-selected_channel_idxes = []
+fs = 250
+
+selected_channel_idxes = None
 target_image_path = None
 target_eeg_path = None
-fs = 250
+
+selected_channel_idxes = [56, 50, 9]
+target_eeg_path = r'server/pre_eeg/18.npy'
+target_image_path = r'/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images/00019_bonnet/bonnet_08s.jpg'
 
 
 @app.route('/pre_experiment_eeg_upload', methods=['POST'])
 def pre_experiment():
+    global selected_channel_idxes
+    global target_image_path
+    global target_eeg_path
     if 'files' not in request.files:
         return jsonify({"message": "No file part"}), 400
 
@@ -53,8 +58,8 @@ def pre_experiment():
     eeg_data = np.array([np.load(file) for file in file_list])  # (n_samples, n_channels, n_timepoints)
     
     # 运行 get_selected_channel_idxes 和 get_target_image 函数
-    selected_channel_idxes = get_selected_channel_idxes(eeg_data)
-    target_image_index = get_target_image_index(eeg_data)
+    selected_channel_idxes = get_selected_channel_idxes(eeg_data, fs)
+    target_image_index = get_target_image_index(eeg_data, selected_channel_idxes, fs)
     print("Selected channels:", selected_channel_idxes)
     print("Target image index:", target_image_index)
 
@@ -63,13 +68,13 @@ def pre_experiment():
     folder_path = os.path.join(image_set_path, folder_list[target_image_index])
     target_image_path = os.path.join(folder_path, os.listdir(folder_path)[0])
     target_eeg_path = f'{pre_eeg_path}/{target_image_index}.npy'
+    print("Target image path:", target_image_path)
+    print("Target eeg path:", target_eeg_path)
 
     # 向客户端发送 experiment_ready 信号
-    socketio.emit('experiment_ready')
+    print('Send: experiment_ready')
+    socketio.emit('experiment_ready') 
 
-    # 释放 NumPy 缓存
-    del eeg_data
-    np.lib.format.open_memmap._mmap.close()        
     
     return jsonify({
         "message": f"Files uploaded successfully"
@@ -78,6 +83,15 @@ def pre_experiment():
 
 @app.route('/experiment', methods=['POST'])
 def experiment():
+    global selected_channel_idxes
+    global target_image_path
+    global target_eeg_path
+    print("##############################################") 
+    print("Start experiment")
+    print("target_image_path:", target_image_path)
+    print("target_eeg_path:", target_eeg_path)
+    print("##############################################")
+    time.sleep(2)    
     base_seed = 100000 * subject_id
     for i in range(1, num_loop_random + 1):
         base_save_path = f'/mnt/dataset0/xkp/closed-loop/exp_sub{subject_id}/loop_random_{i}'
@@ -141,7 +155,7 @@ def experiment():
             loop_eeg_ten = [chosen_eeg_path for chosen_eeg_path in chosen_eeg_paths]
             loop_loss_ten = [chosen_loss for chosen_loss in chosen_losses]
             # print(chosen_similarities, chosen_losses, chosen_image_paths, chosen_eeg_paths)
-            fusion_image_to_images(chosen_image_paths, 6, device, round_save_path, 256)
+            fusion_image_to_images(chosen_image_paths, 6, round_save_path, 256)
             image_path_list = []
             label_list = []
             for image in sorted(os.listdir(round_save_path)):
@@ -238,9 +252,8 @@ def experiment():
         print(all_chosen_image_paths)
         print(all_chosen_eeg_paths)
 
+    print("Sending end signal to client")
     socketio.emit('experiment_finished', {'message': 'Experiment finished'})
-    time.sleep(2)
-    socketio.stop()
 
 
 @app.route('/instant_eeg_upload', methods=['POST'])
@@ -271,19 +284,22 @@ def handle_connect(auth):
     print('Send: pre_experiment_ready')
     # socketio.emit('connection_test', {'message': 'Connection test'})
     # socketio.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
-    socketio.emit('experiment_ready', {'message': 'Experiment is ready'})
+    socketio.emit('experiment_ready')
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
 
 def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
+    print("Sending images to client")
     images = []
     for image_path in image_paths:
         with open(image_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
             images.append(encoded_string)
     socketio.emit('images_received', {'images': images})
+
+    os.makedirs(instant_eeg_path, exist_ok=True)
 
     while True:
         files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
@@ -294,18 +310,27 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
 
     time.sleep(10)
 
-    files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
-    for idx, filename in enumerate(files):
+    print("Category number:", len(category_list))
+
+    # 遍历 category_list，寻找对应的文件
+    for idx, category in enumerate(category_list):
+        filename = f"{idx+1}.npy"
         file_path = os.path.join(instant_eeg_path, filename)
-        category = category_list[idx]
-        new_filename = f"{category}_{filename}"
-        dest_path = os.path.join(save_path, new_filename)
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        shutil.move(file_path, dest_path)
-        print(f"Moved and renamed file to {dest_path}")
+        if os.path.exists(file_path):
+            new_filename = f"{category}_{filename}"
+            dest_path = os.path.join(save_path)
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+            shutil.move(file_path, dest_path)
+            print(f"Moved and renamed file to {dest_path}")
+        else:
+            print(f"File {filename} not found in {instant_eeg_path}")
+
+    shutil.rmtree(instant_eeg_path)
+
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=55565)
+    socketio.run(app, host='0.0.0.0', port=45565)
 
 

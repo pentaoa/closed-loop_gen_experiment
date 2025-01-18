@@ -1,10 +1,14 @@
 # Custom
 cornet/
 exp_sub7/
+exp_sub1/
 sdxl-turbo/
 target_eeg/
 client/pre_eeg/
 img_set/
+server/pre_eeg/
+server/instant_eeg/
+server/server/pre_eeg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -10,13 +10,11 @@ from mne.time_frequency import psd_array_multitaper
 from sklearn.metrics.pairwise import cosine_similarity
 
 def load_vlmodel(model_name='ViT-H-14', model_weights_path=None, precision='fp32', device=None):
-    if device is None:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vlmodel, preprocess_train, feature_extractor = open_clip.create_model_and_transforms(
         model_name=model_name, pretrained=None, precision=precision, device=device
     )
     if model_weights_path:
-        model_state_dict = torch.load(model_weights_path, map_location=device)
+        model_state_dict = torch.load(model_weights_path, map_location=device, weights_only=True)
         vlmodel.load_state_dict(model_state_dict)
     vlmodel.eval()
     return vlmodel, preprocess_train, feature_extractor
@@ -49,7 +47,7 @@ def calculate_loss(eeg_path, target_psd, fs, selected_channel_idxes):
     selected_eeg = eeg[selected_channel_idxes, :]
     psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
     psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    target_psd = torch.tensor(target_psd).view(1, 378)
+    target_psd = torch.tensor(target_psd).view(1, 39)
     loss_fn = nn.MSELoss()
     loss = loss_fn(psd, target_psd)
     return loss
@@ -62,9 +60,8 @@ def select(probabilities, similarities, losses, sample_image_paths, sample_eeg_p
     chosen_eeg_paths = [sample_eeg_paths[idx] for idx in chosen_indices.tolist()]
     return chosen_similarities, chosen_losses, chosen_image_paths, chosen_eeg_paths
 
-def load_target_psd(target_path, fs, selected_channel_idxes):
-    npy_file = os.path.join(target_path, '00183_tick_183.npy')
-    target_signal = np.load(npy_file, allow_pickle=True)
+def load_target_psd(target_eeg_path, fs, selected_channel_idxes):
+    target_signal = np.load(target_eeg_path, allow_pickle=True)
     selected_target_signal = target_signal[selected_channel_idxes, :]
     target_psd, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)

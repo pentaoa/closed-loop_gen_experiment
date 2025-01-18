@@ -465,10 +465,11 @@ class Generator4Embeds:
         self.guidance_scale = guidance_scale
 
         
-        # path = '/home/weichen/.cache/huggingface/hub/models--stabilityai--sdxl-turbo/snapshots/f4b0486b498f84668e828044de1d0c8ba486e05b'
-        # path = "/home/ldy/Workspace/sdxl-turbo/f4b0486b498f84668e828044de1d0c8ba486e05b"
-        pipe = DiffusionPipeline.from_pretrained("stabilityai/sdxl-turbo", torch_dtype=torch.float16, variant="fp16")
-        # pipe = DiffusionPipeline.from_pretrained(path, torch_dtype=torch.float16, variant="fp16")
+        # 使用本地缓存路径
+        # local_path = "/home/ldy/Workspace/sdxl-turbo/f4b0486b498f84668e828044de1d0c8ba486e05b"
+        local_path = "sdxl-turbo"
+        pipe = DiffusionPipeline.from_pretrained(local_path, torch_dtype=torch.float16, variant="fp16")
+        # pipe = DiffusionPipeline.from_pretrained("stabilityai/sdxl-turbo", torch_dtype=torch.float16, variant="fp16")
         pipe.to(device)
         pipe.generate_ip_adapter_embeds = generate_ip_adapter_embeds.__get__(pipe)
         # load ip adapter
