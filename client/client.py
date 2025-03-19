@@ -29,6 +29,13 @@ sio = socketio.Client()
 #     print('Connected to server')
 #     time.sleep(1)
 
+@sio.event
+def experiment_ready():
+    time.sleep(1)
+    # 向服务器发送开始实验的信号
+    send_url = f'{url}/experiment'
+    requests.post(send_url)
+
 def send_files_to_server(pre_eeg_path, url):
     files = []
     file_objects = []
@@ -63,20 +70,13 @@ def connect_failed():
 
 @sio.event
 def pre_experiment_ready(data):
-    time.sleep(4)
-    # controller.start_pre_experiment(image_set_path, pre_eeg_path)
+    time.sleep(2)
+    controller.start_pre_experiment(image_set_path, pre_eeg_path)
     print('Start data sending')
     # 发送 pre_eeg_path 中的所有 npy 文件到服务器
     send_url = f'{url}/pre_experiment_eeg_upload'
 
     send_files_to_server(pre_eeg_path, send_url)
-
-@sio.event
-def experiment_ready():
-    time.sleep(1)
-    # 向服务器发送开始实验的信号
-    send_url = f'{url}/experiment'
-    requests.post(send_url)
 
 @sio.event
 def images_received(data):
@@ -98,7 +98,6 @@ def images_received(data):
     
     print('All images saved')
 
-    time.sleep(2)
     # 启动实验
     controller.start_collection(instant_image_path, instant_eeg_path)
     

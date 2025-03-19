@@ -77,13 +77,16 @@ class Model:
         original_data_path = os.path.join(instant_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
         preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed\{time.strftime("%Y%m%d-%H%M%S")}.npy')
         
-        # 确保目录存在
+        # 重新创建文件夹
         os.makedirs(os.path.dirname(original_data_path), exist_ok=True)
-        os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)        
-        
+        os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
+
         data = self.thread_data_server.GetBufferData()
         np.save(original_data_path, data)
         print("Pre-experiment data saved!")
+
+        del data
+        gc.collect()
 
         # 进行数据预处理
         save_raw(original_data_path, preprocess_data_path)

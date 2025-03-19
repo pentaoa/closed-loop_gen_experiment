@@ -13,24 +13,28 @@ from modulation import fusion_image_to_images
 app = Flask(__name__)
 socketio = SocketIO(app)
 
+# 路径参数
 image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'
 pre_eeg_path = 'server/pre_eeg' # TODO:修改！
 instant_eeg_path = 'server/instant_eeg'
 
+# 实验参数
 num_loop_random = 1
 subject_id = 1 
 num_loops = 10
 sub = 'sub-' + (str(subject_id) if subject_id >= 10 else format(subject_id, '02')) # 如果 subject_id 大于或等于 10，直接使用其值；如果小于 10，则将其格式化为两位数字（如 01, 02）。
 fs = 250
 
+# 全局变量
 selected_channel_idxes = None
 target_image_path = None
 target_eeg_path = None
 
-selected_channel_idxes = [56, 50, 9]
-target_eeg_path = r'server/pre_eeg/18.npy'
-target_image_path = r'/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images/00019_bonnet/bonnet_08s.jpg'
-
+@socketio.on('connect')
+def handle_connect(auth):
+    print('Client connected')
+    print('Send: pre_experiment_ready')
+    socketio.emit('pre_experiment_ready')
 
 @app.route('/pre_experiment_eeg_upload', methods=['POST'])
 def pre_experiment():
@@ -52,7 +56,7 @@ def pre_experiment():
             save_path = os.path.join(pre_eeg_path, filename)
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             file.save(save_path)
-        
+
     # 载入保存的文件
     file_list = [os.path.join(pre_eeg_path, f) for f in sorted(os.listdir(pre_eeg_path))]
     eeg_data = np.array([np.load(file) for file in file_list])  # (n_samples, n_channels, n_timepoints)
@@ -75,7 +79,6 @@ def pre_experiment():
     print('Send: experiment_ready')
     socketio.emit('experiment_ready') 
 
-    
     return jsonify({
         "message": f"Files uploaded successfully"
     }), 200
@@ -86,12 +89,15 @@ def experiment():
     global selected_channel_idxes
     global target_image_path
     global target_eeg_path
-    print("##############################################") 
-    print("Start experiment")
-    print("target_image_path:", target_image_path)
-    print("target_eeg_path:", target_eeg_path)
-    print("##############################################")
-    time.sleep(2)    
+
+    print("\n" + "#" * 50)
+    print("🚀 Starting Experiment 🚀")
+    print(f"🎯 Target Image Path: {target_image_path}")
+    print(f"📊 Target EEG Path: {target_eeg_path}")
+    print("#" * 50 + "\n")
+
+    time.sleep(1)
+
     base_seed = 100000 * subject_id
     for i in range(1, num_loop_random + 1):
         base_save_path = f'/mnt/dataset0/xkp/closed-loop/exp_sub{subject_id}/loop_random_{i}'
@@ -278,17 +284,11 @@ def process_instant_eeg():
         "message": f"Files uploaded successfully"
     }), 200
 
-@socketio.on('connect')
-def handle_connect(auth):
-    print('Client connected')
-    print('Send: pre_experiment_ready')
-    # socketio.emit('connection_test', {'message': 'Connection test'})
-    # socketio.emit('pre_experiment_ready', {'message': 'Pre-experiment is ready'})
-    socketio.emit('experiment_ready')
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
+
 
 def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
     print("Sending images to client")
@@ -327,7 +327,6 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
             print(f"File {filename} not found in {instant_eeg_path}")
 
     shutil.rmtree(instant_eeg_path)
-
 
 
 if __name__ == '__main__':
