@@ -282,3 +282,26 @@ class View:
             y += line_surface.get_height() + line_spacing  # 更新y坐标，为下一行做准备
 
         pg.display.flip()  # 更新屏幕显示
+
+# 适用于离线实验采集
+if __name__ == '__main__':
+    pre_eeg_path = f'client\pre_eeg'
+    instant_eeg_path = f'client\instant_eeg'
+    instant_image_path = f'client\instant_image'
+    image_set_path = f'stimuli_SX' 
+    
+    model = Model()
+    view = View()
+    controller = Controller(model, view)
+
+    # 连接到 JellyFish
+    try:
+        model.connect_to_jellyfish()
+    except Exception as e:
+        print(f"Error: {e}")
+        pg.quit()
+        quit()
+
+    # 启动实验
+    controller.run()
+    controller.start_experiment_1(image_set_path, pre_eeg_path)
