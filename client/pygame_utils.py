@@ -8,10 +8,7 @@ import threading
 
 from neuracle_api import DataServerThread
 from triggerBox import TriggerBox, PackageSensorPara
-from eeg_process import save_raw, create_event_based_npy
-
-def save_raw_thread(original_data_path, preprocess_data_path):
-    save_raw(original_data_path, preprocess_data_path)
+from eeg_process import prepare_filters, real_time_processing, create_event_based_npy
 
 class Model:
     def __init__(self):
@@ -64,9 +61,8 @@ class Model:
         print("Pre-experiment data saved!")
 
         # 进行数据预处理
-        save_thread = threading.Thread(target=save_raw_thread, args=(original_data_path, preprocess_data_path))
-        save_thread.start()
-        save_thread.join()
+        filters = prepare_filters(fs = 1000, new_fs=250)
+        real_time_processing(original_data_path, preprocess_data_path, filters)
         print("Pre-experiment data preprocessed!")
 
         # 数据 event-based 处理
@@ -89,7 +85,8 @@ class Model:
         gc.collect()
 
         # 进行数据预处理
-        save_raw(original_data_path, preprocess_data_path)
+        filters = prepare_filters(fs = 1000, new_fs=250)
+        real_time_processing(original_data_path, preprocess_data_path, filters)
         print("Pre-experiment data preprocessed!")
 
         # 数据 event-based 处理
@@ -146,7 +143,7 @@ class Controller:
         self.model.start_data_collection()        
         # 获取所有文件夹
         folders = sorted(os.listdir(image_set_path))
-        time.sleep(0.75)  # 500ms 黑屏
+        time.sleep(0.50)  # 500ms 黑屏
 
         for folder in folders:
             folder_path = os.path.join(image_set_path, folder)
@@ -177,7 +174,7 @@ class Controller:
         self.view.display_text('Ready to start')
         time.sleep(3)
         # self.model.start_data_collection()
-        time.sleep(0.75)  # 750ms 黑屏
+        time.sleep(0.5)  # 500ms 黑屏
         # 获取 instant_image_path 下的所有图片
         image_files = sorted(os.listdir(instant_image_path))
         for idx, image_file in enumerate(image_files):

@@ -2,8 +2,57 @@ import os
 import numpy as np
 import mne
 from sklearn.utils import shuffle
-import scipy
+from scipy import signal
 from sklearn.discriminant_analysis import _cov
+
+# 预先设计滤波器和参数（只需计算一次）
+def prepare_filters(fs=1000, new_fs=250):
+    """预先计算所有需要的滤波器和参数"""
+    # 设计陷波滤波器（50Hz电源干扰）
+    b_notch, a_notch = signal.iirnotch(50, 30, fs)
+    
+    # 设计带通滤波器（1-100Hz）
+    b_bp, a_bp = signal.butter(4, [1, 100], btype='bandpass', fs=fs)
+    
+    # 计算重采样因子
+    resample_factor = new_fs/fs
+    
+    return {
+        'notch': (b_notch, a_notch),
+        'bandpass': (b_bp, a_bp),
+        'resample_factor': resample_factor
+    }
+
+def npy2raw(input_path):
+    # 加载.npy文件
+    data = np.load(input_path)
+
+    # 你还需要为通道和时间定义一些参数。
+    n_channels, n_times = data.shape
+    print(f'数据的形状为: {n_channels} 通道 x {n_times} 时间点')
+    # 为你的数据创建一个简单的info结构
+    sfreq = 1000  # 采样频率, 根据你的数据修改
+    ch_names = ['EEG %03d' % i for i in range(n_channels)]
+    ch_types = ['eeg'] * n_channels
+    info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+
+    # 使用数据和info创建Raw对象
+    raw = mne.io.RawArray(data, info)
+    return raw
+
+def save_raw(original_data_path, preprocess_data_path):
+    # 读取原始数据文件
+    print(f'正在处理(1): {original_data_path}')
+    raw_data = npy2raw(original_data_path)
+    print(f'正在处理(2): {original_data_path}')
+    raw_data = preprocessing(raw_data)
+
+    # 从 Raw 对象中提取数据
+    d, times = raw_data[:, :]
+    
+    # 保存数据为 .npy 格式
+    os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
+    np.save(preprocess_data_path, d)
 
 
 def preprocessing(raw_data): 
@@ -29,49 +78,34 @@ def preprocessing(raw_data):
 
 
     raw_data.resample(250)
-    # powerline_frequency = 50
-    # raw_data.notch_filter(freqs=powerline_frequency, picks='eeg', notch_widths=1.0, trans_bandwidth=1.0, method='spectrum_fit', filter_length='auto')
-    # raw_data.filter(1, 100)
+    powerline_frequency = 50
+    raw_data.notch_filter(freqs=powerline_frequency, picks='eeg', notch_widths=1.0, trans_bandwidth=1.0, method='spectrum_fit', filter_length='auto')
+    raw_data.filter(1, 100)
 
-    # picks_eeg = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False)
-    # ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
-    # ica.fit(raw_data, picks=picks_eeg)
+    picks_eeg = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False)
+    ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
+    ica.fit(raw_data, picks=picks_eeg)
     
-    # ica.exclude = [0]
-    # ica.apply(raw_data)
+    ica.exclude = [0]
+    ica.apply(raw_data)
 
     scalings = {'eeg': 1e6}
     return raw_data
 
-def npy2raw(input_path):
-    # 加载.npy文件
-    data = np.load(input_path)
-
-    # 这里假设你的数据是形状为(n_channels, n_times)的数组。
-    # 你还需要为通道和时间定义一些参数。
-    n_channels, n_times = data.shape
-    print(f'数据的形状为: {n_channels} 通道 x {n_times} 时间点')
-    # 为你的数据创建一个简单的info结构
-    sfreq = 1000  # 采样频率, 根据你的数据修改
-    ch_names = ['EEG %03d' % i for i in range(n_channels)]
-    ch_types = ['eeg'] * n_channels
-    info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
-
-    # 使用数据和info创建Raw对象
-    raw = mne.io.RawArray(data, info)
-    return raw
-
-def save_raw(original_data_path, preprocess_data_path):
-    # 读取原始数据文件
-    print(f'正在处理(1): {original_data_path}')
-    raw_data = npy2raw(original_data_path)
-    print(f'正在处理(2): {original_data_path}')
-    raw_data = preprocessing(raw_data)
-
-    # 从 Raw 对象中提取数据
-    d, times = raw_data[:, :]
+def real_time_processing(original_data_path, preprocess_data_path, filters):
+    """高效处理实时EEG数据"""
+    data = np.load(original_data_path)
+    # 应用陷波滤波器
+    filtered_data = signal.filtfilt(filters['notch'][0], filters['notch'][1], data, axis=1)
     
-    # 保存数据为 .npy 格式
+    # 应用带通滤波器
+    filtered_data = signal.filtfilt(filters['bandpass'][0], filters['bandpass'][1], filtered_data, axis=1)
+    
+    # 重采样
+    if filters['resample_factor'] != 1:
+        new_length = int(filtered_data.shape[1] * filters['resample_factor'])
+        filtered_data = signal.resample(filtered_data, new_length, axis=1)
+    
     os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
     np.save(preprocess_data_path, d)
 
