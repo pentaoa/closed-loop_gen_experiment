@@ -136,10 +136,6 @@ def get_selected_channel_idxes(data, fs=250):
     return selected_channel_idxes
 
 def get_target_image_index(data, selected_channel_idxes, fs=250):
-    """
-    :param selected_channel_idxes: 使用具有最大视觉特征的通道
-    :param data: (n_samples, n_channels, n_timepoints)
-    """
     
     selected_data = data[:,selected_channel_idxes, :]
 
@@ -158,3 +154,64 @@ def get_target_image_index(data, selected_channel_idxes, fs=250):
     mean_similarity = np.nanmean(similarity_matrix, axis=1)
     lowest_index = np.argsort(mean_similarity)[0]
     return lowest_index
+
+def get_emotion_label_from_path(image_path):
+    filename = os.path.basename(image_path)
+    emotion_code = filename.split('-')[0]
+
+    # 正面情绪列表
+    positive_emotions = ['Amu', 'Ins', 'Ten']
+
+    if emotion_code in positive_emotions:
+        return 1
+    else:
+        return 0
+
+def extract_emotion_psd_features(eeg_data, labels, fs=250, selected_channel_idxes=None):
+    """
+    提取 EEG 数据的 PSD 特征并对应情绪标签。
+    
+    :param eeg_data: EEG 数据，形状为 (n_samples, n_channels, n_timepoints)
+    :param labels: 每个样本对应的标签（1: positive, 2: negative）
+    :param fs: 采样率，默认 250Hz
+    :param selected_channel_idxes: 指定的通道索引列表。如果为 None，则使用所有通道
+    :return: features (n_samples, n_features), labels (n_samples,)
+    """
+    features = []
+    valid_labels = []
+
+    for i in range(len(eeg_data)):
+        eeg_sample = eeg_data[i]  # (n_channels, n_timepoints)
+        if selected_channel_idxes:
+            eeg_sample = eeg_sample[selected_channel_idxes, :]
+
+        psd, _ = psd_array_multitaper(eeg_sample, fs, adaptive=True, normalization='full', verbose=0)
+        psd_flat = psd.flatten()
+        features.append(psd_flat)
+        valid_labels.append(labels[i])
+
+    features = np.array(features)
+    valid_labels = np.array(valid_labels)
+    return features, valid_labels
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+
+def train_emotion_classifier(features, labels, test_size=0.2, random_state=42):
+    """
+    使用提取的 PSD 特征训练一个简单的情绪二分类器。
+    
+    :param features: PSD 特征，形状为 (n_samples, n_features)
+    :param labels: 标签数组，形状为 (n_samples,)
+    :param test_size: 测试集比例
+    :param random_state: 随机种子
+    :return: 训练好的分类器对象，测试报告字符串
+    """
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size, random_state=random_state)
+    clf = RandomForestClassifier()
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+    report = classification_report(y_test, y_pred)
+    return clf, report
+

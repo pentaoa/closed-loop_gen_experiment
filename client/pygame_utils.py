@@ -68,7 +68,14 @@ class Model:
         # 数据 event-based 处理
         create_event_based_npy(original_data_path, preprocess_data_path, pre_eeg_path)
         
-        
+    def save_labels(self, labels, path):
+        labels_path = os.path.join(path, 'labels.npy')
+        # 确保目录存在
+        os.makedirs(os.path.dirname(labels_path), exist_ok=True)
+        # 保存标签
+        np.save(labels_path, labels)
+        print("Labels saved!")
+
     def save_instant_eeg(self, instant_eeg_path):
         original_data_path = os.path.join(instant_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
         preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed\{time.strftime("%Y%m%d-%H%M%S")}.npy')
@@ -137,38 +144,56 @@ class Controller:
         quit()
 
 
-    def start_pre_experiment(self, image_set_path, pre_eeg_path):
-        # self.view.display_text('Ready to start pre-experiment')
+    def start_experiment_1(self, image_set_path, pre_eeg_path):
+        self.view.display_text('Ready to start experiment 1')
         time.sleep(3)
-        self.model.start_data_collection()        
-        # 获取所有文件夹
-        folders = sorted(os.listdir(image_set_path))
+        self.model.start_data_collection()
+        
+        # 获取所有图片文件
+        image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+        
+        # 打乱图片顺序
+        random.shuffle(image_files)
+        
+        # 初始化标签列表
+        labels = []
+        
         time.sleep(0.50)  # 500ms 黑屏
-
-        for folder in folders:
-            folder_path = os.path.join(image_set_path, folder)
-            if os.path.isdir(folder_path):
-                label = int(folder.split('_')[0]) # 设置 label 编号
-                image_files = os.listdir(folder_path)
-                print("label: ", label)
-                print("image_files: ", image_files)
-                image_path = os.path.join(folder_path, image_files[0])
-                print("image_path: ", image_path)
+        
+        for idx, image_file in enumerate(image_files):
+            # 从文件名中提取标签，格式为 <label>-<index>.jpg
+            # 例如: Amu-03.jpg
+            try:
+                label = image_file.split('-')[0]  # 提取标签部分
+                labels.append(label)  # 将标签添加到列表中
+                print("label:", label)
+                
+                image_path = os.path.join(image_set_path, image_file)
+                print("image_path:", image_path)
+                
                 image = pg.image.load(image_path)
                 self.view.display_image(image)
-                self.model.trigger(label)
-                time.sleep(0.1)
+                
+                # 发送触发器，使用图片的索引作为触发器代码
+                self.model.trigger(idx + 1)
+                
+                time.sleep(1)  # 显示图片 1s
                 self.view.display_fixation()
-                time.sleep(0.1)
-                if label  % 10 == 0:
+                time.sleep(1)  # 显示注视点 1s
+                
+                if (idx + 1) % 10 == 0:
                     self.view.clear_screen()
-                    time.sleep(1)
+                    time.sleep(1)  # 每十个间隔一下
+            except Exception as e:
+                print(f"Error processing file {image_file}: {e}")
+                continue
 
-        # 采集结束，分析数据
+        # 采集结束，保存数据
         # self.model.stop_data_collection()
         self.view.display_text('Pre-experiment finished')
         self.model.save_pre_eeg(pre_eeg_path)
-        self.view.display_text('Sata saved')
+        self.model.save_labels(labels, pre_eeg_path)
+        self.view.display_text('Data saved')
 
     def start_collection(self, instant_image_path, instant_eeg_path):
         self.view.display_text('Ready to start')
@@ -241,13 +266,6 @@ class View:
         pg.draw.line(self.screen, (0, 0, 0), (500, 425), (500, 575), 5)
         # 更新屏幕显示
         pg.display.flip()
-
-    # def display_text(self, text, position):
-    #     # 使用指定的中文字体渲染文本
-    #     font = pg.font.Font(self.font_path, 50)
-    #     text_surface = font.render(text, True, (255, 255, 255))
-    #     self.screen.blit(text_surface, position)
-    #     pg.display.flip()
 
     def clear_screen(self):
         self.screen.fill((0, 0, 0))

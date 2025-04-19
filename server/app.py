@@ -14,7 +14,7 @@ app = Flask(__name__)
 socketio = SocketIO(app)
 
 # 路径参数
-image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'
+image_set_path = 'stimuli_SX'
 pre_eeg_path = 'server/pre_eeg' # TODO:修改！
 instant_eeg_path = 'server/instant_eeg'
 
@@ -331,5 +331,3 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=45565)
-
-

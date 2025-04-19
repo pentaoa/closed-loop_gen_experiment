@@ -124,11 +124,12 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
     # 将原始数据的索引转换为降采样后的索引
     event_indices = event_indices // 4
     for idx, event_idx in enumerate(event_indices):
-        if event_idx + 25 <= preprocessed_data.shape[1]:  # 确保索引不越界
-            # 取出 event后 25 个时间点的数据，对应 0.1 秒
-            event_data = preprocessed_data[:64, event_idx:event_idx + 25]
+        if event_idx + 250 <= preprocessed_data.shape[1]:  # 确保索引不越界
+            # 取出 event后 250 个时间点的数据，对应 1 秒
+            event_data = preprocessed_data[:64, event_idx:event_idx + 250]
             
             # 保存每个事件数据为单独的.npy文件
+            # 命名为 1.npy, 2.npy, ..., n.npy
             event_output_path = os.path.join(output_data_dir, f'{idx+1}.npy')
             os.makedirs(os.path.dirname(event_output_path), exist_ok=True)
             np.save(event_output_path, event_data)
