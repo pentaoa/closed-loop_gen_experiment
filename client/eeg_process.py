@@ -107,7 +107,7 @@ def real_time_processing(original_data_path, preprocess_data_path, filters):
         filtered_data = signal.resample(filtered_data, new_length, axis=1)
     
     os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
-    np.save(preprocess_data_path, d)
+    np.save(preprocess_data_path, filtered_data)
 
 
 def create_event_based_npy(original_data_path, preprocess_data_path, output_data_dir):
@@ -120,7 +120,7 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
     
     # 找到所有非零的event索引
     event_indices = np.where(events > 0)[0]
-
+    
     # 将原始数据的索引转换为降采样后的索引
     event_indices = event_indices // 4
     for idx, event_idx in enumerate(event_indices):

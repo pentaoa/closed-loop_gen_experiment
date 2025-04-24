@@ -14,7 +14,8 @@ import shutil
 pre_eeg_path = f'client\pre_eeg'
 instant_eeg_path = f'client\instant_eeg'
 instant_image_path = f'client\instant_image'
-image_set_path = "img_set"
+image_set_path = f'stimuli_SX' 
+    
 
 selected_channels = []
 target_image = None
@@ -44,7 +45,7 @@ def connect_failed():
     quit()
 
 @sio.event
-def experiment_1_ready(data):
+def experiment_1_ready():
     time.sleep(2)
     controller.start_experiment_1(image_set_path, pre_eeg_path)
     print('Start data sending')

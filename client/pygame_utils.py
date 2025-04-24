@@ -4,7 +4,6 @@ import numpy as np
 import pygame as pg
 import time
 import gc
-import threading
 
 from neuracle_api import DataServerThread
 from triggerBox import TriggerBox, PackageSensorPara
@@ -13,7 +12,7 @@ from eeg_process import prepare_filters, real_time_processing, create_event_base
 class Model:
     def __init__(self):
         self.sample_rate = 1000
-        self.t_buffer = 100
+        self.t_buffer = 1000
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM3")
@@ -33,16 +32,6 @@ class Model:
         code = int(label)  # 直接将传入的类别编号转换为整数
         print(f'Sending trigger for label {label}: {code}')
         self.triggerbox.output_event_data(code)
-
-    def connect_to_jellyfish(self):
-        notConnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
-        if notConnect:
-            raise Exception("Can't connect to JellyFish, please check the hostport.")
-        else:
-            while not self.thread_data_server.isReady():
-                time.sleep(1)
-                continue
-            self.thread_data_server.start()
 
     def stop_data_collection(self):
         self.flagstop = True
@@ -145,10 +134,10 @@ class Controller:
 
 
     def start_experiment_1(self, image_set_path, pre_eeg_path):
+        print("Start experiment 1")
         self.view.display_text('Ready to start experiment 1')
-        time.sleep(3)
-        self.model.start_data_collection()
-        
+        # self.model.start_data_collection()
+        time.sleep(5)
         # 获取所有图片文件
         image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
         
@@ -235,7 +224,7 @@ class Controller:
 class View:
     def __init__(self):
         pg.init()
-        self.screen = pg.display.set_mode((1000, 1000))
+        self.screen = pg.display.set_mode((800, 600))
         pg.display.set_caption('Closed Loop Experiment')
         self.font = pg.font.Font(None, 40)
 
@@ -249,21 +238,16 @@ class View:
     def display_fixation(self):
         self.screen.fill((0, 0, 0))  # 清屏
         # 绘制红色圆
-        pg.draw.circle(self.screen, (200, 0, 0), (500, 500), 30, 0)
+        pg.draw.circle(self.screen, (200, 0, 0), (400,300), 10, 0)
         # 绘制黑色十字
-        pg.draw.line(self.screen, (0, 0, 0), (325, 500), (675, 500), 5)
-        pg.draw.line(self.screen, (0, 0, 0), (500, 325), (500, 675), 5)
+        pg.draw.line(self.screen, (0, 0, 0), (425, 300), (375, 300), 3)
+        pg.draw.line(self.screen, (0, 0, 0), (400, 325), (400, 275), 3)
         pg.display.flip()
 
     def display_image(self, image):
         # 缩放图片到屏幕大小
-        image = pg.transform.scale(image, (1000, 1000))
+        image = pg.transform.scale(image, (800, 600))
         self.screen.blit(image, (0, 0))
-        # 绘制红色圆
-        pg.draw.circle(self.screen, (200, 0, 0), (500, 500), 30, 0)
-        # 绘制黑色十字
-        pg.draw.line(self.screen, (0, 0, 0), (425, 500), (575, 500), 5)
-        pg.draw.line(self.screen, (0, 0, 0), (500, 425), (500, 575), 5)
         # 更新屏幕显示
         pg.display.flip()
 
@@ -294,14 +278,4 @@ if __name__ == '__main__':
     view = View()
     controller = Controller(model, view)
 
-    # 连接到 JellyFish
-    try:
-        model.connect_to_jellyfish()
-    except Exception as e:
-        print(f"Error: {e}")
-        pg.quit()
-        quit()
-
-    # 启动实验
-    controller.run()
     controller.start_experiment_1(image_set_path, pre_eeg_path)
