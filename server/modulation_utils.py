@@ -179,16 +179,17 @@ def extract_emotion_psd_features(eeg_data, labels, fs=250, selected_channel_idxe
     """
     features = []
     valid_labels = []
-
+    print(f"========= Extracting features from {len(eeg_data)} samples =========")
     for i in range(len(eeg_data)):
-        eeg_sample = eeg_data[i]  # (n_channels, n_timepoints)
+        eeg_sample = eeg_data[i]  # 处理单个样本：(n_channels, n_timepoints)
         if selected_channel_idxes:
             eeg_sample = eeg_sample[selected_channel_idxes, :]
 
+        # 计算功率谱密度
         psd, _ = psd_array_multitaper(eeg_sample, fs, adaptive=True, normalization='full', verbose=0)
-        psd_flat = psd.flatten()
-        features.append(psd_flat)
-        valid_labels.append(labels[i])
+        psd_flat = psd.flatten() # 将2D的PSD矩阵(通道×频率)展平为1D向量
+        features.append(psd_flat) # 添加到特征列表
+        valid_labels.append(labels[i]) # 添加对应的标签
 
     features = np.array(features)
     valid_labels = np.array(valid_labels)
@@ -197,21 +198,47 @@ def extract_emotion_psd_features(eeg_data, labels, fs=250, selected_channel_idxe
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
 
 def train_emotion_classifier(features, labels, test_size=0.2, random_state=42):
-    """
-    使用提取的 PSD 特征训练一个简单的情绪二分类器。
-    
-    :param features: PSD 特征，形状为 (n_samples, n_features)
-    :param labels: 标签数组，形状为 (n_samples,)
-    :param test_size: 测试集比例
-    :param random_state: 随机种子
-    :return: 训练好的分类器对象，测试报告字符串
-    """
-    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size, random_state=random_state)
-    clf = RandomForestClassifier()
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    report = classification_report(y_test, y_pred)
-    return clf, report
+    """增强版分类器训练，使用网格搜索优化参数"""
 
+    # 把标签转换为二进制
+    positive_emotions = ['Amu', 'Ins', 'Ten']
+    labels = np.where(np.isin(labels, positive_emotions), 1, 0)
+
+    # 划分训练集和测试集
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size, 
+                                                       random_state=random_state, stratify=labels)
+    
+    # 创建处理管道
+    pipeline = Pipeline([
+        ('scaler', StandardScaler()),  # 特征标准化
+        ('classifier', RandomForestClassifier(random_state=random_state))
+    ])
+    
+    # 参数网格
+    param_grid = {
+        'classifier__n_estimators': [50, 100, 200],
+        'classifier__max_depth': [None, 10, 20],
+        'classifier__min_samples_split': [2, 5, 10]
+    }
+    
+    # 网格搜索
+    grid_search = GridSearchCV(pipeline, param_grid, cv=5, scoring='f1_weighted', n_jobs=-1)
+    grid_search.fit(X_train, y_train)
+    
+    # 最佳模型
+    best_model = grid_search.best_estimator_
+    y_pred = best_model.predict(X_test)
+    report = classification_report(y_test, y_pred)
+    
+    print(f"最佳参数: {grid_search.best_params_}")
+    
+    return best_model, report, y_test, y_pred
