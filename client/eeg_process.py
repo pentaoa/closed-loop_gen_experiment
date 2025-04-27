@@ -92,9 +92,10 @@ def preprocessing(raw_data):
     scalings = {'eeg': 1e6}
     return raw_data
 
-def real_time_processing(original_data_path, preprocess_data_path, filters):
-    """高效处理实时EEG数据"""
+def real_time_processing(original_data_path, preprocess_data_path, filters, apply_baseline=True):
+    """高效处理实时EEG数据，包括基线校正"""
     data = np.load(original_data_path)
+    
     # 应用陷波滤波器
     filtered_data = signal.filtfilt(filters['notch'][0], filters['notch'][1], data, axis=1)
     
@@ -106,11 +107,34 @@ def real_time_processing(original_data_path, preprocess_data_path, filters):
         new_length = int(filtered_data.shape[1] * filters['resample_factor'])
         filtered_data = signal.resample(filtered_data, new_length, axis=1)
     
+    # 应用基线校正
+    if apply_baseline:
+        # 每张图片展示1秒，停顿1秒的设计
+        # 假设数据结构是: 停顿1秒 -> 图片呈现1秒 -> 停顿1秒 -> ...
+        # 我们使用每个图片呈现前的停顿期作为基线
+        # 注意：这里假设采样率为250Hz，所以1秒对应250个数据点
+        
+        # 确定数据长度够不够一个完整的刺激周期
+        if filtered_data.shape[1] >= 500:  # 至少需要2秒数据(停顿1秒+刺激1秒)
+            # 使用停顿期的最后250ms作为基线
+            baseline_window = (-250, 0)  # 刺激前250ms作为基线
+            stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
+            
+            # 计算基线均值(使用刺激前的250ms数据)
+            baseline_start = stimulus_onset + int(baseline_window[0] * 250 / 1000)
+            baseline_end = stimulus_onset + int(baseline_window[1] * 250 / 1000)
+            baseline_mean = np.mean(filtered_data[:, baseline_start:baseline_end], axis=1, keepdims=True)
+            
+            # 减去基线均值
+            filtered_data = filtered_data - baseline_mean
+    
     os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
     np.save(preprocess_data_path, filtered_data)
+    return filtered_data
 
 
-def create_event_based_npy(original_data_path, preprocess_data_path, output_data_dir):
+def create_event_based_npy(original_data_path, preprocess_data_path, output_data_dir, apply_baseline=True):
+    """创建基于事件的数据，并应用基线校正"""
     # 读取原始数据
     raw_data = np.load(original_data_path)
     events = raw_data[64, :]  # 第65行存储event信息
@@ -123,17 +147,66 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
     
     # 将原始数据的索引转换为降采样后的索引
     event_indices = event_indices // 4
+    
     for idx, event_idx in enumerate(event_indices):
+        # 我们假设每个事件前有一个停顿期
+        # 如果event_idx小于250，那么我们就没有足够的前导数据作为基线
+        if event_idx < 250:
+            print(f"警告: 事件 {idx+1} 没有足够的前导数据用于基线校正")
+            continue
+            
         if event_idx + 250 <= preprocessed_data.shape[1]:  # 确保索引不越界
-            # 取出 event后 250 个时间点的数据，对应 1 秒
-            event_data = preprocessed_data[:64, event_idx:event_idx + 250]
+            # 提取基线期间(事件前250ms)和事件期间的数据
+            baseline_start = event_idx - 250
+            baseline_end = event_idx
+            event_data = preprocessed_data[:64, event_idx:event_idx + 250]  # 事件后1秒数据
+            
+            if apply_baseline:
+                # 计算基线均值
+                baseline_data = preprocessed_data[:64, baseline_start:baseline_end]
+                baseline_mean = np.mean(baseline_data, axis=1, keepdims=True)
+                
+                # 应用基线校正
+                corrected_event_data = event_data - baseline_mean
+            else:
+                corrected_event_data = event_data
             
             # 保存每个事件数据为单独的.npy文件
-            # 命名为 1.npy, 2.npy, ..., n.npy
             event_output_path = os.path.join(output_data_dir, f'{idx+1}.npy')
             os.makedirs(os.path.dirname(event_output_path), exist_ok=True)
-            np.save(event_output_path, event_data)
+            np.save(event_output_path, corrected_event_data)
 
+def baseline_correction(eeg_data_path, baseline_window=(-250, 0), stimulus_onset=250):
+    """
+    对EEG数据进行基线校正
+    
+    参数:
+    eeg_data_path: 包含EEG数据的.npy文件路径
+    baseline_window: 基线窗口范围(以毫秒为单位，相对于刺激呈现时间点)
+    stimulus_onset: 在数据中刺激呈现的时间点索引
+    
+    返回:
+    baseline_corrected_data: 基线校正后的EEG数据
+    """
+    # 加载EEG数据
+    eeg_data = np.load(eeg_data_path)
+    
+    # 转换毫秒时间窗口到数据点索引
+    fs = 250  # 采样率
+    baseline_start = stimulus_onset + int(baseline_window[0] * fs / 1000)
+    baseline_end = stimulus_onset + int(baseline_window[1] * fs / 1000)
+    
+    # 确保索引在有效范围内
+    baseline_start = max(0, baseline_start)
+    baseline_end = min(eeg_data.shape[1], baseline_end)
+    
+    # 计算基线期间的平均值
+    baseline_mean = np.mean(eeg_data[:, baseline_start:baseline_end], axis=1, keepdims=True)
+    
+    # 减去基线均值进行校正
+    baseline_corrected_data = eeg_data - baseline_mean
+    
+    return baseline_corrected_data
 
 if __name__ == '__main__':
     # 读取原始数据文件

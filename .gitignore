@@ -10,7 +10,9 @@ client/instant_image/
 img_set/
 server/pre_eeg/
 server/instant_eeg/
-server/server/pre_eeg
+server/server/pre_eeg/
+server/example_eeg/
+server/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
