@@ -136,49 +136,68 @@ class Controller:
     def start_experiment_1(self, image_set_path, pre_eeg_path):
         print("Start experiment 1")
         self.view.display_text('Ready to start experiment 1')
-        # self.model.start_data_collection()
         time.sleep(5)
-        # 获取所有图片文件
-        image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
         
-        # 打乱图片顺序
-        random.shuffle(image_files)
+        # 获取所有图片文件
+        all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+        
+        # 按情绪类别分组图片
+        amu_images = [f for f in all_image_files if f.startswith('Amu-')]
+        dis_images = [f for f in all_image_files if f.startswith('Dis-')]
+        
+        print(f"找到 {len(amu_images)} 张 Amu 图片")
+        print(f"找到 {len(dis_images)} 张 Dis 图片")
         
         # 初始化标签列表
         labels = []
         
         time.sleep(0.50)  # 500ms 黑屏
         
-        for idx, image_file in enumerate(image_files):
-            # 从文件名中提取标签，格式为 <label>-<index>.jpg
-            # 例如: Amu-03.jpg
-            try:
-                label = image_file.split('-')[0]  # 提取标签部分
-                labels.append(label)  # 将标签添加到列表中
-                print("label:", label)
+        # 先展示 Amu 图片 (5次)
+        for repeat in range(5):
+            print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
+            random.shuffle(amu_images)  # 每轮随机打乱顺序
+            
+            for idx, image_file in enumerate(amu_images):
+                label = 'Amu'
+                labels.append(label)
                 
                 image_path = os.path.join(image_set_path, image_file)
-                print("image_path:", image_path)
+                print(f"显示图片: {image_path}")
                 
                 image = pg.image.load(image_path)
                 self.view.display_image(image)
                 
                 # 发送触发器，使用图片的索引作为触发器代码
-                self.model.trigger(idx + 1)
+                self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
                 time.sleep(1)  # 显示图片 1s
                 self.view.display_fixation()
                 time.sleep(1)  # 显示注视点 1s
+        
+        # 再展示 Dis 图片 (5次)
+        for repeat in range(5):
+            print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
+            random.shuffle(dis_images)  # 每轮随机打乱顺序
+            
+            for idx, image_file in enumerate(dis_images):
+                label = 'Dis'
+                labels.append(label)
                 
-                if (idx + 1) % 10 == 0:
-                    self.view.clear_screen()
-                    time.sleep(1)  # 每十个间隔一下
-            except Exception as e:
-                print(f"Error processing file {image_file}: {e}")
-                continue
+                image_path = os.path.join(image_set_path, image_file)
+                print(f"显示图片: {image_path}")
+                
+                image = pg.image.load(image_path)
+                self.view.display_image(image)
+                
+                # 发送触发器，使用图片的索引作为触发器代码
+                self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
+                
+                time.sleep(1)  # 显示图片 1s
+                self.view.display_fixation()
+                time.sleep(1)  # 显示注视点 1s
 
         # 采集结束，保存数据
-        # self.model.stop_data_collection()
         self.view.display_text('Pre-experiment finished')
         self.model.save_pre_eeg(pre_eeg_path)
         self.model.save_labels(labels, pre_eeg_path)
