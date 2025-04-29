@@ -4,8 +4,6 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import open_clip
-import random
-from scipy.special import softmax
 from mne.time_frequency import psd_array_multitaper
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -201,10 +199,6 @@ from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
 
 def train_emotion_classifier(features, labels, test_size=0.2, random_state=42):
     """增强版分类器训练，使用网格搜索优化参数"""

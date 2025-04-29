@@ -451,4 +451,4 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, category_list):
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=45565)
+    socketio.run(app, host='0.0.0.0', port=45575)
