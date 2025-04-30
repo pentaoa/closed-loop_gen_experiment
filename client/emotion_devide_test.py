@@ -55,6 +55,7 @@ def experiment_1_ready():
 
 @sio.event
 def experiment_2_ready():
+    view.display_text('Experiment 2 ready, please wait')
     time.sleep(1)
     # 向服务器发送开始实验的信号
     send_url = f'{url}/experiment_2'

@@ -27,8 +27,8 @@ fs = 250
 
 # 路径参数
 image_set_path = 'stimuli_SX'
-pre_eeg_path = f'data/sub{subject_id}/pre_eeg' # TODO: 验证
-instant_eeg_path = 'data/instant_eeg'
+pre_eeg_path = f'server/data/sub{subject_id}/pre_eeg' # TODO: 验证
+instant_eeg_path = 'server/data/instant_eeg'
 
 # 全局变量
 selected_channel_idxes = None
@@ -119,7 +119,6 @@ def experiment_1():
     return jsonify({
         "message": f"Files uploaded and processed successfully"
     }), 200
-        
 
 @app.route('/experiment_2', methods=['POST'])
 def experiment_2():
@@ -322,4 +321,4 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, label_list):
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=45575)
+    socketio.run(app, host='0.0.0.0', port=45565)
