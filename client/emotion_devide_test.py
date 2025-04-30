@@ -55,7 +55,7 @@ def experiment_1_ready():
 
 @sio.event
 def experiment_2_ready():
-    time.sleep(1)
+    time.sleep(10)
     # 向服务器发送开始实验的信号
     send_url = f'{url}/experiment_2'
     requests.post(send_url)
@@ -81,7 +81,7 @@ def send_files_to_server(pre_eeg_path, url):
             f.close()
 
 @sio.event
-def images_received(data):
+def image_for_collection(data):
     os.makedirs(instant_image_path, exist_ok=True)
     os.makedirs(instant_eeg_path, exist_ok=True)
     # 删除 instant_image_path 和 instant_eeg_path 中的所有文件

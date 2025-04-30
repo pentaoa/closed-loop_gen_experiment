@@ -77,9 +77,6 @@ class Model:
         np.save(original_data_path, data)
         print("Pre-experiment data saved!")
 
-        del data
-        gc.collect()
-
         # 进行数据预处理
         filters = prepare_filters(fs = 1000, new_fs=250)
         real_time_processing(original_data_path, preprocess_data_path, filters)
@@ -154,7 +151,7 @@ class Controller:
         time.sleep(0.50)  # 500ms 黑屏
         
         # 先展示 Amu 图片 (5次)
-        for repeat in range(5):
+        for repeat in range(1):
             print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
             random.shuffle(amu_images)  # 每轮随机打乱顺序
             
@@ -176,7 +173,7 @@ class Controller:
                 time.sleep(1)  # 显示注视点 1s
         
         # 再展示 Dis 图片 (5次)
-        for repeat in range(5):
+        for repeat in range(1):
             print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
             random.shuffle(dis_images)  # 每轮随机打乱顺序
             
@@ -205,7 +202,6 @@ class Controller:
 
     def start_collection(self, instant_image_path, instant_eeg_path):
         self.view.display_text('Ready to start')
-        time.sleep(3)
         # self.model.start_data_collection()
         time.sleep(0.5)  # 500ms 黑屏
         # 获取 instant_image_path 下的所有图片
@@ -215,11 +211,9 @@ class Controller:
             image = pg.image.load(image_path)  # 加载图像
             self.view.display_image(image)
             self.model.trigger(idx + 1)  # 使用图像的索引发送触发器
-            time.sleep(0.1)
+            time.sleep(1)
             self.view.display_fixation()
-            time.sleep(0.1)
-            if (idx + 1) % 10 == 0:
-                time.sleep(1)  # 每十个间隔一下
+            time.sleep(1)
         
         # self.model.stop_data_collection()
         self.view.display_text('Processing...')
