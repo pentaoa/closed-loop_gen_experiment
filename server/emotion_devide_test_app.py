@@ -41,7 +41,7 @@ clf = None
 def handle_connect(auth):
     print('Client connected')
     print('Send: experiment_1_ready')
-    socketio.emit('experiment_1_ready')
+    socketio.emit('experiment_2_ready')
 
 @app.route('/experiment_1_eeg_upload', methods=['POST'])
 def experiment_1():
@@ -132,6 +132,25 @@ def experiment_2():
     print("实时情感分类测试")
     print("#" * 50 + "\n")
     
+    # 检查分类器是否为 None，如果是则加载备用模型
+    if clf is None:
+        try:
+            import joblib
+            best_model_path = 'server/best_emotion_model.pkl'
+            if os.path.exists(best_model_path):
+                clf = joblib.load(best_model_path)
+                print(f"成功加载备用分类器: {best_model_path}")
+            else:
+                return jsonify({
+                    "message": "没有可用的分类器。请先运行 experiment_1 训练分类器，或确保备用模型文件存在。",
+                    "error": "classifier_not_found"
+                }), 400
+        except Exception as e:
+            return jsonify({
+                "message": f"加载备用分类器时出错: {str(e)}",
+                "error": "classifier_load_failed"
+            }), 500    
+    
     # 获取所有图片    
     all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
     
@@ -184,66 +203,88 @@ def experiment_2():
         current_image = test_images[frame]
         img_path = os.path.join(image_set_path, current_image)
         
-        # 将图片发送给客户端进行EEG采集
-        with open(img_path, "rb") as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-            socketio.emit('image_for_collection', {'image': encoded_string, 'index': frame})
-        
-        print(f"发送图片 {frame+1}/{len(test_images)}: {current_image}")
-        
         # 记录标签（假设图片名称中包含情绪类别信息）
         true_label = 1 if current_image.startswith('Amu-') else 0
-        labels.append(true_label)
+        current_label = [true_label]  # 创建单个元素的标签列表
         
-        # 等待EEG数据采集完成
-        eeg_file = os.path.join(instant_eeg_path, f"{frame}.npy")
+        # 为当前帧创建保存路径
+        frame_save_path = os.path.join(f'server/data/sub{subject_id}/test_results', f"frame_{frame}")
+        os.makedirs(frame_save_path, exist_ok=True)
         
-        # 等待一段时间，然后检查文件是否存在
-        max_wait = 5  # 最多等待5秒
-        wait_time = 0
-        while not os.path.exists(eeg_file) and wait_time < max_wait:
-            time.sleep(0.5)
-            wait_time += 0.5
+        # 使用 collect_and_save_eeg_for_all_images 函数处理单个图像
+        collect_and_save_eeg_for_all_images([img_path], frame_save_path, current_label)
         
-        if not os.path.exists(eeg_file):
-            print(f"警告: 未能接收到EEG数据文件 {eeg_file}")
-            # 返回当前图表状态，不更新
+        time.sleep(10)
+        
+        # 查找保存的EEG文件
+        eeg_files = [f for f in os.listdir(frame_save_path) if f.endswith('.npy')]
+        
+        if not eeg_files:
+            print(f"警告: 未能在 {frame_save_path} 中找到EEG数据文件")
+            # 返回当前状态，不更新
             return list(bars) + prob_texts
         
-        # 加载EEG数据
+        # 加载第一个找到的EEG文件
+        eeg_file = os.path.join(frame_save_path, eeg_files[0])
         eeg_data = np.load(eeg_file)
-        
+        eeg_data = np.expand_dims(eeg_data, axis=0)  # 扩展为 (1, 通道数, 时间点)
+        print(f"EEG 数据已加载，形状为{eeg_data.shape}")
+    
         # 提取特征
-        features, valid_labels = extract_emotion_psd_features(eeg_data, true_label, fs, selected_channel_idxes)
+        features, valid_labels = extract_emotion_psd_features(eeg_data, current_label, fs, selected_channel_idxes)
         print(f"提取的特征形状: {features.shape}")
         print(f"有效标签数量: {len(valid_labels)}")
         
         # 使用分类器进行预测
-        proba = clf.predict_proba(features)[0]
-        
-        # 更新概率值
-        probabilities[0] = proba[0]  # Dis概率
-        probabilities[1] = proba[1]  # Amu概率
-        print(f"预测概率: Dis={probabilities[0]:.2f}, Amu={probabilities[1]:.2f}")
-        
-        # 更新条形高度
-        for bar, prob in zip(bars, probabilities):
-            bar.set_height(prob)
-        
-        # 更新文本标签
-        for i, (text, prob) in enumerate(zip(prob_texts, probabilities)):
-            text.set_text(f'{prob:.2f}')
-            text.set_position((i, prob + 0.02))
-    
-        # 清理文件，避免重复读取
-        os.remove(eeg_file)
+        if features.shape[0] > 0:  # 确保提取到了特征
+            # 检查分类器预期的特征维度
+            expected_n_features = clf.n_features_in_
+            actual_n_features = features.shape[1]
+            
+            if actual_n_features != expected_n_features:
+                print(f"警告: 特征维度不匹配! 预期 {expected_n_features}，实际 {actual_n_features}")
+                
+                if actual_n_features < expected_n_features:
+                    # 如果特征维度小于预期，填充零
+                    padding = np.zeros((features.shape[0], expected_n_features - actual_n_features))
+                    features = np.hstack((features, padding))
+                    print(f"已填充特征至维度: {features.shape}")
+                else:
+                    # 如果特征维度大于预期，截断
+                    features = features[:, :expected_n_features]
+                    print(f"已截断特征至维度: {features.shape}")
+            
+            # 确保特征已经过预处理（如标准化）
+            if hasattr(clf, 'named_steps') and 'scaler' in clf.named_steps:
+                # 如果分类器是Pipeline且包含scaler
+                # features已经由Pipeline中的scaler处理
+                proba = clf.predict_proba(features)[0]
+            else:
+                # 直接使用分类器
+                proba = clf.predict_proba(features)[0]
+            
+            # 更新概率值
+            probabilities[0] = proba[0]  # Dis概率
+            probabilities[1] = proba[1]  # Amu概率
+            print(f"预测概率: Dis={probabilities[0]:.2f}, Amu={probabilities[1]:.2f}")
+            
+            # 更新条形高度
+            for bar, prob in zip(bars, probabilities):
+                bar.set_height(prob)
+            
+            # 更新文本标签
+            for i, (text, prob) in enumerate(zip(prob_texts, probabilities)):
+                text.set_text(f'{prob:.2f}')
+                text.set_position((i, prob + 0.02))
+        else:
+            print("警告: 未能提取特征")
         
         # 返回所有更新的元素
         return list(bars) + prob_texts
         
     # 创建动画
     ani = FuncAnimation(fig, update, frames=min(100, len(test_images)),
-                        interval=1000, blit=True)
+                        interval=30000, blit=True)
     
     plt.tight_layout()
     plt.show()
@@ -252,6 +293,8 @@ def experiment_2():
     from matplotlib.animation import PillowWriter
     ani.save(f'sub{subject_id}_emotion_animation.gif', writer=PillowWriter(fps=1))
     print(f"动画已保存为sub{subject_id}_emotion_animation.gif")
+    
+    
     
 @app.route('/instant_eeg_upload', methods=['POST'])
 def process_instant_eeg():
@@ -290,17 +333,22 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, label_list):
             images.append(encoded_string)
     socketio.emit('image_for_collection', {'images': images})
 
+    # 确保目录存在并清空
+    if os.path.exists(instant_eeg_path):
+        shutil.rmtree(instant_eeg_path)
     os.makedirs(instant_eeg_path, exist_ok=True)
 
+    # 等待EEG文件出现
     while True:
         files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
         if files:
             break
         else:
             time.sleep(1)
+            print("等待EEG数据文件...")
 
-    # time.sleep(10) # 请注意，这里的时间是为了多个eeg数据全部到达
-
+    # 给文件额外的时间完全写入
+    time.sleep(3)
     print("Category number:", len(label_list))
 
     # 遍历 label_list，寻找对应的文件
@@ -308,16 +356,25 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, label_list):
         filename = f"{idx+1}.npy"
         file_path = os.path.join(instant_eeg_path, filename)
         if os.path.exists(file_path):
-            new_filename = f"{label}_{filename}"
-            dest_path = os.path.join(save_path)
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-
-            shutil.move(file_path, dest_path)
-            print(f"Moved and renamed file to {dest_path}")
+            # 创建正确的目标文件名
+            new_filename = f"{label}_{idx+1}.npy"
+            # 构建完整的目标路径
+            dest_file_path = os.path.join(save_path, new_filename)
+            
+            # 如果目标文件已存在，先删除
+            if os.path.exists(dest_file_path):
+                os.remove(dest_file_path)
+                
+            # 移动文件
+            shutil.move(file_path, dest_file_path)
+            print(f"移动文件到 {dest_file_path}")
         else:
-            print(f"File {filename} not found in {instant_eeg_path}")
+            print(f"文件 {filename} 未在 {instant_eeg_path} 中找到")
 
-    shutil.rmtree(instant_eeg_path)
+    # 清理临时目录
+    if os.path.exists(instant_eeg_path):
+        shutil.rmtree(instant_eeg_path)
+        os.makedirs(instant_eeg_path, exist_ok=True)
 
 
 if __name__ == '__main__':
