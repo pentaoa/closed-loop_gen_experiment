@@ -79,7 +79,7 @@ def pre_experiment_ready(data):
     send_files_to_server(pre_eeg_path, send_url)
 
 @sio.event
-def images_received(data):
+def image_for_collection(data):
     os.makedirs(instant_image_path, exist_ok=True)
     os.makedirs(instant_eeg_path, exist_ok=True)
     # 删除 instant_image_path 和 instant_eeg_path 中的所有文件
@@ -104,9 +104,6 @@ def images_received(data):
     # 发送 instant_eeg_path 中的所有 npy 文件到服务器
     send_url = f'{url}/instant_eeg_upload'
     send_files_to_server(instant_eeg_path, send_url)
-
-
-
 
 @sio.event
 def experiment_finished(data):

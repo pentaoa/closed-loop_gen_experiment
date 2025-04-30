@@ -121,5 +121,3 @@ def train_emotion_classifier(features, labels, test_size=0.2, random_state=42):
     print(f"最佳参数: {grid_search.best_params_}")
     
     return best_model, report, y_test, y_pred_custom
-
-def animation_update()
