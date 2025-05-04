@@ -13,6 +13,7 @@ server/instant_eeg/
 server/server/pre_eeg/
 server/example_eeg/
 server/data/
+DIRTI Database/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

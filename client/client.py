@@ -1,130 +1,298 @@
-import base64
-from io import BytesIO
-import requests
 import os
-import numpy as np
-import json
-from PIL import Image
 import time
-import pygame as pg
-from pygame_utils import Model, View, Controller
-import socketio
 import shutil
+import numpy as np
+import pygame as pg
+import joblib
+import random
 
-pre_eeg_path = f'client\pre_eeg'
-instant_eeg_path = f'client\instant_eeg'
-instant_image_path = f'client\instant_image'
-image_set_path = "img_set"
+from pygame_utils import Model, View, Controller
+from client_utils import *
 
-selected_channels = []
-target_image = None
+# 定义常量
+subject_id = 3
+fs = 250
+experiment_stage = 1
+# pre_eeg_path = os.path.join('client', 'pre_eeg')
+pre_eeg_path = f'client/data/sub{subject_id}/pre_eeg'
+instant_eeg_path = 'server/data/instant_eeg'
+image_set_path = 'stimuli_SX'
+
+selected_channel_idxes = []
+clf = None
+
+model = Model()
+view = View()
+controller = Controller(model, view)
+
+def experiment_1():
+    global selected_channel_idxes
+    global target_image_path
+    global target_eeg_path
+    global clf
+    print("\n" + "#" * 50)
+    print("情感分类器训练")
+    print("#" * 50 + "\n")
+    controller.start_experiment_1(image_set_path, pre_eeg_path)
+
+    # 首先检查并加载标签文件
+    labels_path = os.path.join(pre_eeg_path, 'labels.npy')
+    
+    # 加载标签
+    labels = np.load(labels_path)
+    print(f"Loaded labels: {labels}")
+
+    # 获取所有EEG数据文件（排除labels.npy）
+    eeg_files = [f for f in sorted(os.listdir(pre_eeg_path)) 
+                 if f.endswith('.npy') and f != 'labels.npy']
+    
+    if len(eeg_files) != len(labels):
+        print(f"Warning: Number of EEG files ({len(eeg_files)}) doesn't match number of labels ({len(labels)})")
+    
+    # 转换标签
+    labels = get_binary_labels(labels)
+    
+    # 加载EEG数据
+    eeg_file_paths = [os.path.join(pre_eeg_path, f) for f in eeg_files]
+    eeg_data = np.array([np.load(file) for file in eeg_file_paths])  # (n_samples, n_channels, n_timepoints)
+    
+    print(f"Loaded {len(eeg_data)} EEG samples with shape {eeg_data.shape}")
+
+    # 获取选定的通道
+    selected_channel_idxes = get_selected_channel_idxes(eeg_data, fs, 4)
+    print("Selected channels:", selected_channel_idxes)
+    
+    # 提取特征并训练分类器
+    features, valid_labels = extract_emotion_psd_features(eeg_data, labels, fs, selected_channel_idxes)
+    print(f"提取的特征形状: {features.shape}")
+    print(f"有效标签数量: {len(valid_labels)}")
+    
+    # pca = PCA(n_components=0.95)
+    # features = pca.fit_transform(features)
+    # print(f"使用PCA降维后的特征形状: {features.shape}")
+    
+    # joblib.dump(pca, 'server/pca_model.pkl')
+
+    # 训练分类器和评估
+    clf, report, y_test, y_pred = train_emotion_classifier(features, valid_labels, 0.2, 42)
+    print("\n分类器报告:")
+    print(report)        
 
 
-url = 'http://10.20.37.38:45565'
+def experiment_2():
+    global selected_channel_idxes
+    global target_image_path
+    global target_eeg_path
+    global clf
 
-sio = socketio.Client()
+    print("\n" + "#" * 50)
+    print("实时情感分类测试")
+    print("#" * 50 + "\n")
+    
+    # 检查分类器是否为 None，如果是则加载备用模型
+    if clf is None:
+        best_model_path = 'server/best_emotion_model.pkl'
+        # pca = joblib.load('server/pca_model.pkl')
+        if os.path.exists(best_model_path):
+            clf = joblib.load(best_model_path)
+            print(f"成功加载分类器: {best_model_path}")
 
-# @sio.event
-# def connect():
-#     print('Connected to server')
-#     time.sleep(1)
+    
+    # 获取所有图片    
+    all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+    
+    # 按情绪类别分组图片
+    amu_images = [f for f in all_image_files if f.startswith('Amu-')]
+    dis_images = [f for f in all_image_files if f.startswith('Dis-')]
+    test_images = amu_images + dis_images
+    print(f"找到 {len(amu_images)} 张 Amu 图片")
+    print(f"找到 {len(dis_images)} 张 Dis 图片")
+    print(f"一共 {len(test_images)} 张图片")
+    
+    # 随机所有照片
+    random.shuffle(test_images)
+    
+    frame = 0
+    frame_results = []
 
-@sio.event
-def experiment_ready():
-    time.sleep(1)
-    # 向服务器发送开始实验的信号
-    send_url = f'{url}/experiment'
-    requests.post(send_url)
+    while True:
+        print(f"Frame {frame}")
+        
+        if frame >= len(test_images):
+            print("所有图片已处理，结束实验")
+            break
 
-def send_files_to_server(pre_eeg_path, url):
-    files = []
-    file_objects = []
+        # 获取当前图片
+        current_image = test_images[frame]
+        img_path = os.path.join(image_set_path, current_image)
+        
+        # 记录标签（假设图片名称中包含情绪类别信息）
+        true_label = 1 if current_image.startswith('Amu-') else 0
+        current_label = [true_label]  # 创建单个元素的标签列表
+        print(f"当前标签: {true_label}")
+        
+        # 为当前帧创建保存路径
+        frame_save_path = os.path.join(f'server/data/sub{subject_id}/test_results', f"frame_{frame}")
+        os.makedirs(frame_save_path, exist_ok=True)
+        
+        # 使用 collect_and_save_eeg_for_all_images 函数处理单个图像
+        collect_and_save_eeg([img_path], frame_save_path, current_label)
+        
+        # time.sleep(10)
+        
+        # 查找保存的EEG文件
+        eeg_files = [f for f in os.listdir(frame_save_path) if f.endswith('.npy')]
+        while (not eeg_files):
+            print("等待EEG数据文件...")
+            time.sleep(1)
+            
+        
+        
+        # 加载第一个找到的EEG文件
+        eeg_file = os.path.join(frame_save_path, eeg_files[0])
+        eeg_data = np.load(eeg_file)
+        eeg_data = np.expand_dims(eeg_data, axis=0)  # 扩展为 (1, 通道数, 时间点)
+        print(f"EEG 数据已加载，形状为{eeg_data.shape}")
+    
+        # 提取特征
+        features, valid_labels = extract_emotion_psd_features(eeg_data, current_label, fs, selected_channel_idxes)
+        print(f"提取的特征形状: {features.shape}")
+        print(f"有效标签数量: {len(valid_labels)}")
+        
+        # 使用分类器进行预测
+        if features.shape[0] > 0:  # 确保提取到了特征
+            # 检查分类器预期的特征维度
+            expected_n_features = clf.n_features_in_
+            actual_n_features = features.shape[1]
+            
+            if actual_n_features != expected_n_features:
+                print(f"警告: 特征维度不匹配! 预期 {expected_n_features}，实际 {actual_n_features}")
+                
+                if actual_n_features < expected_n_features:
+                    # 如果特征维度小于预期，填充零
+                    padding = np.zeros((features.shape[0], expected_n_features - actual_n_features))
+                    features = np.hstack((features, padding))
+                    print(f"已填充特征至维度: {features.shape}")
+                else:
+                    # 如果特征维度大于预期，截断
+                    features = features[:, :expected_n_features]
+                    print(f"已截断特征至维度: {features.shape}")
+            
+            # # 使用PCA降维
+            # features = pca.transform(features)
+            # print(f"使用PCA降维后的特征形状: {features.shape}")
+            
+            proba = clf.predict_proba(features)[0]
+            predicted_label = 1 if proba[1] > proba[0] else 0
+            
+            # 记录当前帧结果
+            frame_results.append({
+                'frame': frame,
+                'image': current_image,
+                'true_label': true_label,
+                'predicted_label': predicted_label,
+                'prob_dis': proba[0],
+                'prob_amu': proba[1],
+                'correct': (predicted_label == true_label)
+            })
+            
+            print(f"预测概率: Dis={proba[0]:.2f}, Amu={proba[1]:.2f}")
+            print(f"预测标签: {'Amu' if predicted_label == 1 else 'Dis'}, 实际标签: {'Amu' if true_label == 1 else 'Dis'}")
+            print(f"预测结果: {'✓ 正确' if predicted_label == true_label else '✗ 错误'}\n")
+            
+        else:
+            print("警告: 未能提取特征")
+        
+        frame += 1
+    
+    # 给出测试结果
+    print("测试结果:")
+    
+    # 计算总体准确率
+    if frame_results:
+        total_frames = len(frame_results)
+        correct_frames = sum(1 for r in frame_results if r['correct'])
+        accuracy = correct_frames / total_frames
+        
+        # 按情绪类别统计
+        amu_frames = sum(1 for r in frame_results if r['true_label'] == 1)
+        dis_frames = total_frames - amu_frames
+        
+        amu_correct = sum(1 for r in frame_results if r['true_label'] == 1 and r['correct'])
+        dis_correct = sum(1 for r in frame_results if r['true_label'] == 0 and r['correct'])
+        
+        amu_accuracy = amu_correct / amu_frames if amu_frames > 0 else 0
+        dis_accuracy = dis_correct / dis_frames if dis_frames > 0 else 0
+        
+        print(f"总样本数: {total_frames}")
+        print(f"总体准确率: {accuracy:.2f} ({correct_frames}/{total_frames})")
+        print(f"Amu情绪准确率: {amu_accuracy:.2f} ({amu_correct}/{amu_frames})")
+        print(f"Dis情绪准确率: {dis_accuracy:.2f} ({dis_correct}/{dis_frames})")
 
-    try:
-        for filename in os.listdir(pre_eeg_path):
-            if filename.endswith('.npy'):
-                file_path = os.path.join(pre_eeg_path, filename)
-                f = open(file_path, 'rb')
-                file_objects.append(f)
-                files.append(('files', (filename, f, 'application/octet-stream')))
-
-        response = requests.post(url, files=files)
-        print("Files sent successfully")
-    finally:
-        # 确保所有文件在请求完成后被关闭
-        for f in file_objects:
-            f.close()
-
-
-@sio.event
-def connect_error():
-    print('Failed to connect to server')
-    view.display_text('Failed to connect to server')
-    time.sleep(3)
-    pg.quit()
-    quit()
-
-@sio.event
-def connect_failed():
-    view.display_text('Failed to connect')
-
-@sio.event
-def pre_experiment_ready(data):
-    time.sleep(2)
-    controller.start_pre_experiment(image_set_path, pre_eeg_path)
-    print('Start data sending')
-    # 发送 pre_eeg_path 中的所有 npy 文件到服务器
-    send_url = f'{url}/pre_experiment_eeg_upload'
-
-    send_files_to_server(pre_eeg_path, send_url)
-
-@sio.event
-def image_for_collection(data):
-    os.makedirs(instant_image_path, exist_ok=True)
+def collect_and_save_eeg(image_paths, save_path, label_list):
+    """
+    在客户端收集并保存EEG数据
+    
+    参数:
+    - image_paths: 图像文件路径列表
+    - save_path: 保存EEG数据的目标路径
+    - label_list: 与图像对应的标签列表
+    """
+    # 确保目录存在并清空
+    if os.path.exists(instant_eeg_path):
+        shutil.rmtree(instant_eeg_path)
     os.makedirs(instant_eeg_path, exist_ok=True)
-    # 删除 instant_image_path 和 instant_eeg_path 中的所有文件
-    shutil.rmtree(instant_image_path)
-    shutil.rmtree(instant_eeg_path)    
-    print('Images received')
-    images = data['images']
-    for idx, encoded_string in enumerate(images):
-        image_data = base64.b64decode(encoded_string)
-        image = Image.open(BytesIO(image_data))
-        # 保存图像到 client/instant_image 目录下
-        image_save_path = os.path.join(instant_image_path, f'image_{idx}.png')
-        os.makedirs(instant_image_path, exist_ok=True)
-        image.save(image_save_path)
-        print(f'Image saved to {image_save_path}')
     
-    print('All images saved')
-
-    # 启动实验
-    controller.start_collection(instant_image_path, instant_eeg_path)
+    # 确保保存目录存在
+    os.makedirs(save_path, exist_ok=True)
     
-    # 发送 instant_eeg_path 中的所有 npy 文件到服务器
-    send_url = f'{url}/instant_eeg_upload'
-    send_files_to_server(instant_eeg_path, send_url)
+    print("开始显示图像并收集EEG数据")
+    
+    # 启动实验，展示图像并收集EEG数据
+    controller.start_collection(image_paths, instant_eeg_path)
+    
+    # 等待EEG文件出现 (这里不需要等待，因为start_collection已经完成数据收集)
+    files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
+    if not files:
+        print("警告：未找到EEG数据文件")
+        return
+        
+    print(f"找到 {len(files)} 个EEG数据文件")
+    print("Category number:", len(label_list))
 
-@sio.event
-def experiment_finished(data):
-    print(data['message'])
-    controller.stop_collection()
-    # 断开连接
-    sio.disconnect()
+    # 遍历 label_list，寻找对应的文件
+    for idx, label in enumerate(label_list):
+        filename = f"{idx+1}.npy"
+        file_path = os.path.join(instant_eeg_path, filename)
+        if os.path.exists(file_path):
+            # 创建正确的目标文件名
+            new_filename = f"{label}_{idx+1}.npy"
+            # 构建完整的目标路径
+            dest_file_path = os.path.join(save_path, new_filename)
+            
+            # 如果目标文件已存在，先删除
+            if os.path.exists(dest_file_path):
+                os.remove(dest_file_path)
+                
+            # 移动文件
+            shutil.move(file_path, dest_file_path)
+            print(f"移动文件到 {dest_file_path}")
+        else:
+            print(f"文件 {filename} 未在 {instant_eeg_path} 中找到")
+
+    # 清理临时目录
+    if os.path.exists(instant_eeg_path):
+        shutil.rmtree(instant_eeg_path)
+        os.makedirs(instant_eeg_path, exist_ok=True)
+    
+    print("EEG数据收集和保存完成")
+
 
 if __name__ == '__main__':
-    global controller
-    model = Model()
-    view = View()
-    controller = Controller(model, view)
-
-
-    sio.connect(url)
-
     controller.run()
-
-    # 等待以保持连接
-    try:
-        sio.wait()
-    except KeyboardInterrupt:
-        sio.disconnect()
+    
+    if experiment_stage == 1:
+        experiment_1()
+    
+    elif experiment_stage == 2:
+        experiment_2()  
