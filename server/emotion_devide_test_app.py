@@ -1,7 +1,9 @@
 import base64
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
+import joblib
 from matplotlib.animation import FuncAnimation
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
@@ -31,11 +33,12 @@ pre_eeg_path = f'server/data/sub{subject_id}/pre_eeg' # TODO: 验证
 instant_eeg_path = 'server/data/instant_eeg'
 
 # 全局变量
-selected_channel_idxes = None
+selected_channel_idxes = [28, 37, 23, 33]
 target_image_path = None
 target_eeg_path = None
 features = None
 clf = None
+pca = None
 
 @socketio.on('connect')
 def handle_connect(auth):
@@ -50,6 +53,7 @@ def experiment_1():
     global target_eeg_path
     global features
     global clf
+    global pca
     
     print("\n" + "#" * 50)
     print("情感分类器训练")
@@ -107,6 +111,12 @@ def experiment_1():
     print(f"提取的特征形状: {features.shape}")
     print(f"有效标签数量: {len(valid_labels)}")
     
+    pca = PCA(n_components=0.95)
+    features = pca.fit_transform(features)
+    print(f"使用PCA降维后的特征形状: {features.shape}")
+    
+    joblib.dump(pca, 'server/pca_model.pkl')
+
     # 训练分类器和评估
     clf, report, y_test, y_pred = train_emotion_classifier(features, valid_labels, 0.2, 42)
     print("\n分类器报告:")
@@ -127,6 +137,7 @@ def experiment_2():
     global target_eeg_path
     global features
     global clf
+    global pca
 
     print("\n" + "#" * 50)
     print("实时情感分类测试")
@@ -135,8 +146,8 @@ def experiment_2():
     # 检查分类器是否为 None，如果是则加载备用模型
     if clf is None:
         try:
-            import joblib
             best_model_path = 'server/best_emotion_model.pkl'
+            pca = joblib.load('server/pca_model.pkl')
             if os.path.exists(best_model_path):
                 clf = joblib.load(best_model_path)
                 print(f"成功加载备用分类器: {best_model_path}")
@@ -164,41 +175,18 @@ def experiment_2():
     
     # 随机所有照片
     random.shuffle(test_images)
+
     
-    # 初始化标签列表
-    labels = []
+    frame = 0
+    frame_results = []
 
-    # 设置绘图参数
-    fig, ax = plt.subplots(figsize=(10, 6))
-    fig.set_facecolor('#f0f0f0')
-    ax.set_ylim(0, 1)
-    ax.set_xlim(-0.5, 1.5)
-
-    # 初始值
-    categories = ['Dis', 'Amu']
-    colors = ['#FF6B6B', '#4ECDC4']
-    probabilities = [0.5, 0.5]
-
-    # 创建条形图
-    bars = ax.bar(categories, probabilities, color=colors, width=0.5, alpha=0.8)
-
-    # 添加概率文本标签
-    prob_texts = []
-    for i, (bar, prob) in enumerate(zip(bars, probabilities)):
-        text = ax.text(bar.get_x() + bar.get_width()/2, prob + 0.02,
-                    f'{prob:.2f}', ha='center', va='bottom', fontweight='bold')
-        prob_texts.append(text)
-        
-    # 设置标题和标签
-    ax.set_title('Predict', fontsize=16)
-    ax.set_ylabel('Probability', fontsize=14)
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-
-    def update(frame):
+    while True:
         print(f"Frame {frame}")
-        if frame >= len(test_images):
-            return list(bars) + prob_texts
         
+        if frame >= len(test_images):
+            print("所有图片已处理，结束实验")
+            break
+
         # 获取当前图片
         current_image = test_images[frame]
         img_path = os.path.join(image_set_path, current_image)
@@ -206,6 +194,7 @@ def experiment_2():
         # 记录标签（假设图片名称中包含情绪类别信息）
         true_label = 1 if current_image.startswith('Amu-') else 0
         current_label = [true_label]  # 创建单个元素的标签列表
+        print(f"当前标签: {true_label}")
         
         # 为当前帧创建保存路径
         frame_save_path = os.path.join(f'server/data/sub{subject_id}/test_results', f"frame_{frame}")
@@ -214,15 +203,11 @@ def experiment_2():
         # 使用 collect_and_save_eeg_for_all_images 函数处理单个图像
         collect_and_save_eeg_for_all_images([img_path], frame_save_path, current_label)
         
-        time.sleep(10)
+        # time.sleep(10)
         
         # 查找保存的EEG文件
         eeg_files = [f for f in os.listdir(frame_save_path) if f.endswith('.npy')]
         
-        if not eeg_files:
-            print(f"警告: 未能在 {frame_save_path} 中找到EEG数据文件")
-            # 返回当前状态，不更新
-            return list(bars) + prob_texts
         
         # 加载第一个找到的EEG文件
         eeg_file = os.path.join(frame_save_path, eeg_files[0])
@@ -254,45 +239,63 @@ def experiment_2():
                     features = features[:, :expected_n_features]
                     print(f"已截断特征至维度: {features.shape}")
             
-            # 确保特征已经过预处理（如标准化）
-            if hasattr(clf, 'named_steps') and 'scaler' in clf.named_steps:
-                # 如果分类器是Pipeline且包含scaler
-                # features已经由Pipeline中的scaler处理
-                proba = clf.predict_proba(features)[0]
-            else:
-                # 直接使用分类器
-                proba = clf.predict_proba(features)[0]
+            # # 使用PCA降维
+            # features = pca.transform(features)
+            # print(f"使用PCA降维后的特征形状: {features.shape}")
             
-            # 更新概率值
-            probabilities[0] = proba[0]  # Dis概率
-            probabilities[1] = proba[1]  # Amu概率
-            print(f"预测概率: Dis={probabilities[0]:.2f}, Amu={probabilities[1]:.2f}")
+            proba = clf.predict_proba(features)[0]
+            predicted_label = 1 if proba[1] > proba[0] else 0
             
-            # 更新条形高度
-            for bar, prob in zip(bars, probabilities):
-                bar.set_height(prob)
+            # 记录当前帧结果
+            frame_results.append({
+                'frame': frame,
+                'image': current_image,
+                'true_label': true_label,
+                'predicted_label': predicted_label,
+                'prob_dis': proba[0],
+                'prob_amu': proba[1],
+                'correct': (predicted_label == true_label)
+            })
             
-            # 更新文本标签
-            for i, (text, prob) in enumerate(zip(prob_texts, probabilities)):
-                text.set_text(f'{prob:.2f}')
-                text.set_position((i, prob + 0.02))
+            print(f"预测概率: Dis={proba[0]:.2f}, Amu={proba[1]:.2f}")
+            print(f"预测标签: {'Amu' if predicted_label == 1 else 'Dis'}, 实际标签: {'Amu' if true_label == 1 else 'Dis'}")
+            print(f"预测结果: {'✓ 正确' if predicted_label == true_label else '✗ 错误'}\n")
+            
         else:
             print("警告: 未能提取特征")
         
-        # 返回所有更新的元素
-        return list(bars) + prob_texts
+        frame += 1
+    
+    # 给出测试结果
+    print("测试结果:")
+    
+    # 计算总体准确率
+    if frame_results:
+        total_frames = len(frame_results)
+        correct_frames = sum(1 for r in frame_results if r['correct'])
+        accuracy = correct_frames / total_frames
         
-    # 创建动画
-    ani = FuncAnimation(fig, update, frames=min(100, len(test_images)),
-                        interval=30000, blit=True)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # 保存动画
-    from matplotlib.animation import PillowWriter
-    ani.save(f'sub{subject_id}_emotion_animation.gif', writer=PillowWriter(fps=1))
-    print(f"动画已保存为sub{subject_id}_emotion_animation.gif")
+        # 按情绪类别统计
+        amu_frames = sum(1 for r in frame_results if r['true_label'] == 1)
+        dis_frames = total_frames - amu_frames
+        
+        amu_correct = sum(1 for r in frame_results if r['true_label'] == 1 and r['correct'])
+        dis_correct = sum(1 for r in frame_results if r['true_label'] == 0 and r['correct'])
+        
+        amu_accuracy = amu_correct / amu_frames if amu_frames > 0 else 0
+        dis_accuracy = dis_correct / dis_frames if dis_frames > 0 else 0
+        
+        print(f"总样本数: {total_frames}")
+        print(f"总体准确率: {accuracy:.2f} ({correct_frames}/{total_frames})")
+        print(f"Amu情绪准确率: {amu_accuracy:.2f} ({amu_correct}/{amu_frames})")
+        print(f"Dis情绪准确率: {dis_accuracy:.2f} ({dis_correct}/{dis_frames})")
+        
+    socketio.emit('experiment_finished')
+        
+    return jsonify({
+        "message": f"Files uploaded successfully"
+    }), 200
+        
     
     
     
@@ -348,7 +351,7 @@ def collect_and_save_eeg_for_all_images(image_paths, save_path, label_list):
             print("等待EEG数据文件...")
 
     # 给文件额外的时间完全写入
-    time.sleep(3)
+    time.sleep(1)
     print("Category number:", len(label_list))
 
     # 遍历 label_list，寻找对应的文件

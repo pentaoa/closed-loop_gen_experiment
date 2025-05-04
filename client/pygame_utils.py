@@ -11,7 +11,7 @@ from eeg_process import prepare_filters, real_time_processing, create_event_base
 
 class Model:
     def __init__(self):
-        self.sample_rate = 1000
+        self.sample_rate = 250
         self.t_buffer = 1000
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
@@ -50,7 +50,7 @@ class Model:
         print("Pre-experiment data saved!")
 
         # 进行数据预处理
-        filters = prepare_filters(fs = 1000, new_fs=250)
+        filters = prepare_filters(fs = self.sample_rate, new_fs=250)
         real_time_processing(original_data_path, preprocess_data_path, filters)
         print("Pre-experiment data preprocessed!")
 
@@ -78,7 +78,7 @@ class Model:
         print("Pre-experiment data saved!")
 
         # 进行数据预处理
-        filters = prepare_filters(fs = 1000, new_fs=250)
+        filters = prepare_filters(fs = self.sample_rate, new_fs=250)
         real_time_processing(original_data_path, preprocess_data_path, filters)
         print("Pre-experiment data preprocessed!")
 
@@ -168,7 +168,7 @@ class Controller:
                 # 发送触发器，使用图片的索引作为触发器代码
                 self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
-                time.sleep(1)  # 显示图片 1s
+                time.sleep(3)  # 显示图片 3s
                 self.view.display_fixation()
                 time.sleep(1)  # 显示注视点 1s
         
@@ -190,7 +190,7 @@ class Controller:
                 # 发送触发器，使用图片的索引作为触发器代码
                 self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
-                time.sleep(1)  # 显示图片 1s
+                time.sleep(3)  # 显示图片 3s
                 self.view.display_fixation()
                 time.sleep(1)  # 显示注视点 1s
 
@@ -200,18 +200,18 @@ class Controller:
         self.model.save_labels(labels, pre_eeg_path)
         self.view.display_text('Data saved')
 
-    def start_collection(self, instant_image_path, instant_eeg_path):
+    def start_collection(self, image_paths, instant_eeg_path):
         self.view.display_text('Ready to start')
         # self.model.start_data_collection()
         time.sleep(0.5)  # 500ms 黑屏
-        # 获取 instant_image_path 下的所有图片
-        image_files = sorted(os.listdir(instant_image_path))
-        for idx, image_file in enumerate(image_files):
-            image_path = os.path.join(instant_image_path, image_file)
+        
+        # 使用传入的 image_paths 列表
+        for idx, image_path in enumerate(image_paths):
+            # 直接使用传入的图像路径加载图像
             image = pg.image.load(image_path)  # 加载图像
             self.view.display_image(image)
             self.model.trigger(idx + 1)  # 使用图像的索引发送触发器
-            time.sleep(1)
+            time.sleep(3)
             self.view.display_fixation()
             time.sleep(1)
         
@@ -219,7 +219,7 @@ class Controller:
         self.view.display_text('Processing...')
         self.model.save_instant_eeg(instant_eeg_path)
         self.view.display_text('Data saved')
-
+        
     def black_screen_post(self):
         self.view.clear_screen()
         time.sleep(0.75)  # 750ms 黑屏

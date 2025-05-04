@@ -6,7 +6,7 @@ from scipy import signal
 from sklearn.discriminant_analysis import _cov
 
 # 预先设计滤波器和参数（只需计算一次）
-def prepare_filters(fs=1000, new_fs=250):
+def prepare_filters(fs=250, new_fs=250):
     """预先计算所有需要的滤波器和参数"""
     # 设计陷波滤波器（50Hz电源干扰）
     b_notch, a_notch = signal.iirnotch(50, 30, fs)
@@ -23,74 +23,74 @@ def prepare_filters(fs=1000, new_fs=250):
         'resample_factor': resample_factor
     }
 
-def npy2raw(input_path):
-    # 加载.npy文件
-    data = np.load(input_path)
+# def npy2raw(input_path):
+#     # 加载.npy文件
+#     data = np.load(input_path)
 
-    # 你还需要为通道和时间定义一些参数。
-    n_channels, n_times = data.shape
-    print(f'数据的形状为: {n_channels} 通道 x {n_times} 时间点')
-    # 为你的数据创建一个简单的info结构
-    sfreq = 1000  # 采样频率, 根据你的数据修改
-    ch_names = ['EEG %03d' % i for i in range(n_channels)]
-    ch_types = ['eeg'] * n_channels
-    info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+#     # 你还需要为通道和时间定义一些参数。
+#     n_channels, n_times = data.shape
+#     print(f'数据的形状为: {n_channels} 通道 x {n_times} 时间点')
+#     # 为你的数据创建一个简单的info结构
+#     sfreq = 1000  # 采样频率, 根据你的数据修改
+#     ch_names = ['EEG %03d' % i for i in range(n_channels)]
+#     ch_types = ['eeg'] * n_channels
+#     info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
 
-    # 使用数据和info创建Raw对象
-    raw = mne.io.RawArray(data, info)
-    return raw
+#     # 使用数据和info创建Raw对象
+#     raw = mne.io.RawArray(data, info)
+#     return raw
 
-def save_raw(original_data_path, preprocess_data_path):
-    # 读取原始数据文件
-    print(f'正在处理(1): {original_data_path}')
-    raw_data = npy2raw(original_data_path)
-    print(f'正在处理(2): {original_data_path}')
-    raw_data = preprocessing(raw_data)
+# def save_raw(original_data_path, preprocess_data_path):
+#     # 读取原始数据文件
+#     print(f'正在处理(1): {original_data_path}')
+#     raw_data = npy2raw(original_data_path)
+#     print(f'正在处理(2): {original_data_path}')
+#     raw_data = preprocessing(raw_data)
 
-    # 从 Raw 对象中提取数据
-    d, times = raw_data[:, :]
+#     # 从 Raw 对象中提取数据
+#     d, times = raw_data[:, :]
     
-    # 保存数据为 .npy 格式
-    os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
-    np.save(preprocess_data_path, d)
+#     # 保存数据为 .npy 格式
+#     os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
+#     np.save(preprocess_data_path, d)
 
 
-def preprocessing(raw_data): 
-    ch_names = [
-        'Fpz', 'Fp1', 'Fp2', 'AF3', 'AF4', 'AF7', 'AF8', 'Fz', 'F1', 'F2', 'F3', 'F4',
-        'F5', 'F6', 'F7', 'F8', 'FCz', 'FC1', 'FC2', 'FC3', 'FC4', 'FC5', 'FC6', 'FT7',
-        'FT8', 'Cz', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'T7', 'T8', 'CP1', 'CP2', 'CP3',
-        'CP4', 'CP5', 'CP6', 'TP7', 'TP8', 'Pz', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POz',
-        'PO3', 'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'Oz', 'O1', 'O2', 'ECG', 'HEOR', 'HEOL',
-        'VEOU', 'VEOL'
-    ]
-    scalings = {'eeg': 10e1}
+# def preprocessing(raw_data): 
+#     ch_names = [
+#         'Fpz', 'Fp1', 'Fp2', 'AF3', 'AF4', 'AF7', 'AF8', 'Fz', 'F1', 'F2', 'F3', 'F4',
+#         'F5', 'F6', 'F7', 'F8', 'FCz', 'FC1', 'FC2', 'FC3', 'FC4', 'FC5', 'FC6', 'FT7',
+#         'FT8', 'Cz', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'T7', 'T8', 'CP1', 'CP2', 'CP3',
+#         'CP4', 'CP5', 'CP6', 'TP7', 'TP8', 'Pz', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POz',
+#         'PO3', 'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'Oz', 'O1', 'O2', 'ECG', 'HEOR', 'HEOL',
+#         'VEOU', 'VEOL'
+#     ]
+#     scalings = {'eeg': 10e1}
 
-    original_channel_names = raw_data.ch_names
-    if len(original_channel_names) != len(ch_names):
-        print("原始数据中的通道数量与ch_names列表中的通道数量不匹配！")
-    else:
-        channel_rename_map = dict(zip(original_channel_names, ch_names))
-        raw_data.rename_channels(channel_rename_map)
+#     original_channel_names = raw_data.ch_names
+#     if len(original_channel_names) != len(ch_names):
+#         print("原始数据中的通道数量与ch_names列表中的通道数量不匹配！")
+#     else:
+#         channel_rename_map = dict(zip(original_channel_names, ch_names))
+#         raw_data.rename_channels(channel_rename_map)
 
-    non_eeg_channels = ['ECG', 'HEOR', 'HEOL', 'VEOU', 'VEOL']
-    raw_data.pick_channels([ch for ch in raw_data.ch_names if ch not in non_eeg_channels])
+#     non_eeg_channels = ['ECG', 'HEOR', 'HEOL', 'VEOU', 'VEOL']
+#     raw_data.pick_channels([ch for ch in raw_data.ch_names if ch not in non_eeg_channels])
 
 
-    raw_data.resample(250)
-    powerline_frequency = 50
-    raw_data.notch_filter(freqs=powerline_frequency, picks='eeg', notch_widths=1.0, trans_bandwidth=1.0, method='spectrum_fit', filter_length='auto')
-    raw_data.filter(1, 100)
+#     raw_data.resample(250)
+#     powerline_frequency = 50
+#     raw_data.notch_filter(freqs=powerline_frequency, picks='eeg', notch_widths=1.0, trans_bandwidth=1.0, method='spectrum_fit', filter_length='auto')
+#     raw_data.filter(1, 100)
 
-    picks_eeg = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False)
-    ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
-    ica.fit(raw_data, picks=picks_eeg)
+#     picks_eeg = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False)
+#     ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
+#     ica.fit(raw_data, picks=picks_eeg)
     
-    ica.exclude = [0]
-    ica.apply(raw_data)
+#     ica.exclude = [0]
+#     ica.apply(raw_data)
 
-    scalings = {'eeg': 1e6}
-    return raw_data
+#     scalings = {'eeg': 1e6}
+#     return raw_data
 
 def real_time_processing(original_data_path, preprocess_data_path, filters, apply_baseline=True):
     """高效处理实时EEG数据，包括基线校正"""
@@ -109,20 +109,19 @@ def real_time_processing(original_data_path, preprocess_data_path, filters, appl
     
     # 应用基线校正
     if apply_baseline:
-        # 每张图片展示1秒，停顿1秒的设计
-        # 假设数据结构是: 停顿1秒 -> 图片呈现1秒 -> 停顿1秒 -> ...
-        # 我们使用每个图片呈现前的停顿期作为基线
-        # 注意：这里假设采样率为250Hz，所以1秒对应250个数据点
+        # 每张图片显示3秒，停顿1秒的设计
+        # 假设数据结构是: 停顿1秒 -> 图片呈现3秒 -> 停顿1秒 -> ...
+        # 采样率为250Hz，所以1秒对应250个数据点，3秒对应750个数据点
         
         # 确定数据长度够不够一个完整的刺激周期
-        if filtered_data.shape[1] >= 500:  # 至少需要2秒数据(停顿1秒+刺激1秒)
+        if filtered_data.shape[1] >= 1000:  # 至少需要4秒数据(停顿1秒+刺激3秒)
             # 使用停顿期的最后250ms作为基线
             baseline_window = (-250, 0)  # 刺激前250ms作为基线
             stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
             
             # 计算基线均值(使用刺激前的250ms数据)
-            baseline_start = stimulus_onset + int(baseline_window[0] * 250 / 1000)
-            baseline_end = stimulus_onset + int(baseline_window[1] * 250 / 1000)
+            baseline_start = stimulus_onset + int(baseline_window[0])
+            baseline_end = stimulus_onset + int(baseline_window[1])
             baseline_mean = np.mean(filtered_data[:, baseline_start:baseline_end], axis=1, keepdims=True)
             
             # 减去基线均值
@@ -145,21 +144,20 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
     # 找到所有非零的event索引
     event_indices = np.where(events > 0)[0]
     
-    # 将原始数据的索引转换为降采样后的索引
-    event_indices = event_indices // 4
+    # 不再需要转换采样率索引，因为采样率一致
+    # event_indices = event_indices // 4
     
     for idx, event_idx in enumerate(event_indices):
-        # 我们假设每个事件前有一个停顿期
-        # 如果event_idx小于250，那么我们就没有足够的前导数据作为基线
+        # 检查是否有足够的前导数据作为基线
         if event_idx < 250:
             print(f"警告: 事件 {idx+1} 没有足够的前导数据用于基线校正")
             continue
             
-        if event_idx + 250 <= preprocessed_data.shape[1]:  # 确保索引不越界
+        if event_idx + 750 <= preprocessed_data.shape[1]:  # 确保索引不越界（需要3秒的刺激数据）
             # 提取基线期间(事件前250ms)和事件期间的数据
             baseline_start = event_idx - 250
             baseline_end = event_idx
-            event_data = preprocessed_data[:64, event_idx:event_idx + 250]  # 事件后1秒数据
+            event_data = preprocessed_data[:64, event_idx:event_idx + 750]  # 事件后3秒数据
             
             if apply_baseline:
                 # 计算基线均值
@@ -176,25 +174,26 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
             os.makedirs(os.path.dirname(event_output_path), exist_ok=True)
             np.save(event_output_path, corrected_event_data)
 
-def baseline_correction(eeg_data_path, baseline_window=(-250, 0), stimulus_onset=250):
+
+def baseline_correction(eeg_data, baseline_window=(-250, 0), stimulus_onset=250):
     """
     对EEG数据进行基线校正
     
     参数:
-    eeg_data_path: 包含EEG数据的.npy文件路径
+    eeg_data: EEG数据数组或文件路径
     baseline_window: 基线窗口范围(以毫秒为单位，相对于刺激呈现时间点)
     stimulus_onset: 在数据中刺激呈现的时间点索引
     
     返回:
     baseline_corrected_data: 基线校正后的EEG数据
     """
-    # 加载EEG数据
-    eeg_data = np.load(eeg_data_path)
+    # 加载EEG数据，如果传入的是路径
+    if isinstance(eeg_data, str):
+        eeg_data = np.load(eeg_data)
     
-    # 转换毫秒时间窗口到数据点索引
-    fs = 250  # 采样率
-    baseline_start = stimulus_onset + int(baseline_window[0] * fs / 1000)
-    baseline_end = stimulus_onset + int(baseline_window[1] * fs / 1000)
+    # 采样率为250Hz时，1ms = 0.25点，直接计算点数
+    baseline_start = stimulus_onset + baseline_window[0]
+    baseline_end = stimulus_onset + baseline_window[1]
     
     # 确保索引在有效范围内
     baseline_start = max(0, baseline_start)
@@ -208,14 +207,14 @@ def baseline_correction(eeg_data_path, baseline_window=(-250, 0), stimulus_onset
     
     return baseline_corrected_data
 
-if __name__ == '__main__':
-    # 读取原始数据文件
-    original_data_path = r'C:\Users\ncclab\Documents\GitHub\closed-loop\client\pre_eeg\original\20250117-232225.npy'
-    preprocess_data_path = r'C:\Users\ncclab\Documents\GitHub\closed-loop\client\pre_eeg\preprocessed\20250117-232225.npy'
-    output_data_dir = r'C:\Users\ncclab\Documents\GitHub\closed-loop\client\pre_eeg\event_based'
+# if __name__ == '__main__':
+#     # 读取原始数据文件
+#     original_data_path = r'C:\Users\ncclab\Documents\GitHub\closed-loop\client\pre_eeg\original\20250117-232225.npy'
+#     preprocess_data_path = r'C:\Users\ncclab\Documents\GitHub\closed-loop\client\pre_eeg\preprocessed\20250117-232225.npy'
+#     output_data_dir = r'C:\Users\ncclab\Documents\GitHub\closed-loop\client\pre_eeg\event_based'
 
-    # 保存原始数据为 .npy 格式
-    save_raw(original_data_path, preprocess_data_path)
+#     # 保存原始数据为 .npy 格式
+#     save_raw(original_data_path, preprocess_data_path)
 
-    # 创建基于事件的数据
-    create_event_based_npy(original_data_path, preprocess_data_path, output_data_dir)
+#     # 创建基于事件的数据
+#     create_event_based_npy(original_data_path, preprocess_data_path, output_data_dir)
