@@ -7,7 +7,7 @@ import gc
 
 from neuracle_api import DataServerThread
 from triggerBox import TriggerBox, PackageSensorPara
-from eeg_process import prepare_filters, real_time_processing, create_event_based_npy
+from eeg_process import *
 
 class Model:
     def __init__(self):
@@ -23,7 +23,7 @@ class Model:
             raise Exception("Can't connect to JellyFish, please check the hostport.")
         else:
             while not self.thread_data_server.isReady():
-                time.sleep(1)
+                time.sleep(0.1)
                 continue
             self.thread_data_server.start()
             print("Data collection started.")
@@ -66,26 +66,19 @@ class Model:
         print("Labels saved!")
 
     def save_instant_eeg(self, instant_eeg_path):
-        original_data_path = os.path.join(instant_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
-        preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed\{time.strftime("%Y%m%d-%H%M%S")}.npy')
-        
-        # 重新创建文件夹
-        os.makedirs(os.path.dirname(original_data_path), exist_ok=True)
-        os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
-
         data = self.thread_data_server.GetBufferData()
-        np.save(original_data_path, data)
-        print("Pre-experiment data saved!")
-
-        # 进行数据预处理
+        event_data_list = create_last_event_npy(data, 1)
+        event_data = event_data_list[0]  # 取第一个事件数据
         filters = prepare_filters(fs = self.sample_rate, new_fs=250)
-        real_time_processing(original_data_path, preprocess_data_path, filters)
-        print("Pre-experiment data preprocessed!")
+        data = real_time_process(event_data, filters)
+        np.save(os.path.join(instant_eeg_path, f'{time.strftime("%Y%m%d-%H%M%S")}.npy'), data)
+        print("Instant EEG data saved!")
 
-        # 数据 event-based 处理
-        create_event_based_npy(original_data_path, preprocess_data_path, instant_eeg_path)
-
-
+    def get_event_data(self):
+        data = self.thread_data_server.GetBufferData()
+        event_data_list = create_last_event_npy(data, 1)
+        return event_data_list
+    
     def get_next_sequence(self):
         # 确保不会超出列表范围
         if self.current_sequence * self.num_per_event >= len(self.sequence_indices):
@@ -124,9 +117,9 @@ class Controller:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         running = False
-                        
-        pg.quit()
-        gc.collect()
+
+            # Add a small sleep to prevent high CPU usage
+            time.sleep(0.01)        
         quit()
 
 
@@ -151,7 +144,7 @@ class Controller:
         time.sleep(0.50)  # 500ms 黑屏
         
         # 先展示 Amu 图片 (5次)
-        for repeat in range(1):
+        for repeat in range(5):
             print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
             random.shuffle(amu_images)  # 每轮随机打乱顺序
             
@@ -173,7 +166,7 @@ class Controller:
                 time.sleep(1)  # 显示注视点 1s
         
         # 再展示 Dis 图片 (5次)
-        for repeat in range(1):
+        for repeat in range(5):
             print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
             random.shuffle(dis_images)  # 每轮随机打乱顺序
             
@@ -199,6 +192,26 @@ class Controller:
         self.model.save_pre_eeg(pre_eeg_path)
         self.model.save_labels(labels, pre_eeg_path)
         self.view.display_text('Data saved')
+
+    def collect_data(self, image_path):
+        self.view.display_text('Ready to start')
+        time.sleep(0.5)
+
+        image = pg.image.load(image_path)
+        self.view.display_image(image)
+        self.model.trigger(1)  # 使用图像的索引发送触发器
+        time.sleep(3)
+        self.view.display_fixation()
+        time.sleep(1)
+
+        self.view.display_text('Processing...')
+
+        data = self.model.thread_data_server.GetBufferData()
+        event_data_list = create_last_event_npy(data, 1)
+        event_data = event_data_list[0]  # 取第一个事件数据
+        filters = prepare_filters(fs = self.model.sample_rate, new_fs=250)
+        data = real_time_process(event_data, filters)
+        return data
 
     def start_collection(self, image_paths, instant_eeg_path):
         self.view.display_text('Ready to start')
