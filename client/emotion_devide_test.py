@@ -7,7 +7,7 @@ import json
 from PIL import Image
 import time
 import pygame as pg
-from pygame_utils import Model, View, Controller
+from client.pygame_utils_n import Model, View, Controller
 import socketio
 import shutil
 
