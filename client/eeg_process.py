@@ -107,12 +107,12 @@ def real_time_process(original_data, filters, apply_baseline=True):
     
     # 应用基线校正
     if apply_baseline:
-        # 每张图片显示3秒，停顿1秒的设计
-        # 假设数据结构是: 停顿1秒 -> 图片呈现3秒 -> 停顿1秒 -> ...
-        # 采样率为250Hz，所以1秒对应250个数据点，3秒对应750个数据点
+        # 每张图片显示5秒，停顿1秒的设计
+        # 假设数据结构是: 停顿1秒 -> 图片呈现5秒 -> 停顿1秒 -> ...
+        # 采样率为250Hz，所以1秒对应250个数据点，5秒对应1250个数据点
         
         # 确定数据长度够不够一个完整的刺激周期
-        if filtered_data.shape[1] >= 1000:  # 至少需要4秒数据(停顿1秒+刺激3秒)
+        if filtered_data.shape[1] >= 1500:  # 至少需要6秒数据(停顿1秒+刺激5秒)
             # 使用停顿期的最后250ms作为基线
             baseline_window = (-250, 0)  # 刺激前250ms作为基线
             stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
@@ -144,12 +144,12 @@ def real_time_processing(original_data_path, preprocess_data_path, filters, appl
     
     # 应用基线校正
     if apply_baseline:
-        # 每张图片显示3秒，停顿1秒的设计
-        # 假设数据结构是: 停顿1秒 -> 图片呈现3秒 -> 停顿1秒 -> ...
-        # 采样率为250Hz，所以1秒对应250个数据点，3秒对应750个数据点
+        # 每张图片显示5秒，停顿1秒的设计
+        # 假设数据结构是: 停顿1秒 -> 图片呈现5秒 -> 停顿1秒 -> ...
+        # 采样率为250Hz，所以1秒对应250个数据点，5秒对应1250个数据点
         
         # 确定数据长度够不够一个完整的刺激周期
-        if filtered_data.shape[1] >= 1000:  # 至少需要4秒数据(停顿1秒+刺激3秒)
+        if filtered_data.shape[1] >= 1500:  # 至少需要6秒数据(停顿1秒+刺激5秒)
             # 使用停顿期的最后250ms作为基线
             baseline_window = (-250, 0)  # 刺激前250ms作为基线
             stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
@@ -169,10 +169,10 @@ def real_time_processing(original_data_path, preprocess_data_path, filters, appl
 def create_last_event_npy(data, count=1):
     """
     从数据中提取最后count个事件的数据
+    适配5秒图片呈现+1秒空白的实验设计
     
     参数:
     data: 包含EEG数据和事件标记的numpy数组
-    apply_baseline: 是否应用基线校正
     count: 返回最后几个事件的数据
     
     返回:
@@ -201,11 +201,12 @@ def create_last_event_npy(data, count=1):
             print(f"警告: 事件 {len(event_indices) - count + idx + 1} 没有足够的前导数据用于基线校正")
             continue
             
-        if event_idx + 750 <= data.shape[1]:  # 确保索引不越界（需要3秒的刺激数据）
+        # 新的设计: 5秒图片 = 1250个样本点 (采样率250Hz)
+        if event_idx + 1250 <= data.shape[1]:  # 确保索引不越界（需要5秒的刺激数据）
             # 提取基线期间(事件前250ms)和事件期间的数据
             baseline_start = event_idx - 250
             baseline_end = event_idx
-            event_data = data[:64, event_idx:event_idx + 750]  # 事件后3秒数据
+            event_data = data[:64, event_idx:event_idx + 1250]  # 事件后5秒数据
             
             if apply_baseline:
                 # 计算基线均值
@@ -237,20 +238,18 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
     # 找到所有非零的event索引
     event_indices = np.where(events > 0)[0]
     
-    # 不再需要转换采样率索引，因为采样率一致
-    # event_indices = event_indices // 4
-    
     for idx, event_idx in enumerate(event_indices):
         # 检查是否有足够的前导数据作为基线
         if event_idx < 250:
             print(f"警告: 事件 {idx+1} 没有足够的前导数据用于基线校正")
             continue
             
-        if event_idx + 750 <= preprocessed_data.shape[1]:  # 确保索引不越界（需要3秒的刺激数据）
+        # 新的设计: 5秒图片 = 1250个样本点 (采样率250Hz)
+        if event_idx + 1250 <= preprocessed_data.shape[1]:  # 确保索引不越界（需要5秒的刺激数据）
             # 提取基线期间(事件前250ms)和事件期间的数据
             baseline_start = event_idx - 250
             baseline_end = event_idx
-            event_data = preprocessed_data[:64, event_idx:event_idx + 750]  # 事件后3秒数据
+            event_data = preprocessed_data[:64, event_idx:event_idx + 1250]  # 事件后5秒数据
             
             if apply_baseline:
                 # 计算基线均值
@@ -266,6 +265,9 @@ def create_event_based_npy(original_data_path, preprocess_data_path, output_data
             event_output_path = os.path.join(output_data_dir, f'{idx+1}.npy')
             os.makedirs(os.path.dirname(event_output_path), exist_ok=True)
             np.save(event_output_path, corrected_event_data)
+            print(f"保存了事件 {idx+1} 数据，形状: {corrected_event_data.shape}")
+        else:
+            print(f"警告: 事件 {idx+1} 没有足够的后续数据")
 
 
 def baseline_correction(eeg_data, baseline_window=(-250, 0), stimulus_onset=250):

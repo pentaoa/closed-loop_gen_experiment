@@ -121,3 +121,116 @@ def train_emotion_classifier(features, labels, test_size=0.2, random_state=42):
     print(f"最佳参数: {grid_search.best_params_}")
     
     return best_model, report, y_test, y_pred_custom
+
+def train_svc(features, labels, test_size=0.2, random_state=42):
+    """
+    训练SVM分类器
+    
+    参数:
+    - features: 提取的特征数据
+    - labels: 对应的标签
+    - test_size: 测试集比例
+    - random_state: 随机数种子
+    
+    返回:
+    - clf: 训练好的分类器
+    - report: 分类报告
+    - y_test: 测试集的真实标签
+    - y_pred: 测试集的预测标签
+    """
+    from sklearn.model_selection import train_test_split, GridSearchCV
+    from sklearn.metrics import classification_report
+    from sklearn.svm import SVC
+    from sklearn.preprocessing import StandardScaler
+    
+    # 划分训练集和测试集
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, labels, test_size=test_size, random_state=random_state, stratify=labels
+    )
+    
+    # 特征标准化（重要！SVM对特征缩放非常敏感）
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    # 参数网格搜索
+    param_grid = {
+        'C': [0.1, 1, 10, 100],
+        'gamma': ['scale', 'auto', 0.01, 0.1],
+        'kernel': ['rbf', 'linear']
+    }
+    
+    # 使用网格搜索找到最佳参数
+    grid_search = GridSearchCV(
+        SVC(probability=True, random_state=random_state),
+        param_grid,
+        cv=5,
+        scoring='accuracy',
+        n_jobs=-1
+    )
+    grid_search.fit(X_train_scaled, y_train)
+    
+    print(f"SVC最佳参数: {grid_search.best_params_}")
+    
+    # 使用最佳参数构建和训练模型
+    clf = grid_search.best_estimator_
+    
+    # 在测试集上评估模型
+    y_pred = clf.predict(X_test_scaled)
+    report = classification_report(y_test, y_pred)
+    
+    return clf, report, y_test, y_pred, scaler
+
+def train_gradient_boosting_classifier(features, labels, test_size=0.2, random_state=42):
+    """
+    训练梯度提升分类器
+    
+    参数:
+    - features: 提取的特征数据
+    - labels: 对应的标签
+    - test_size: 测试集比例
+    - random_state: 随机数种子
+    
+    返回:
+    - clf: 训练好的分类器
+    - report: 分类报告
+    - y_test: 测试集的真实标签
+    - y_pred: 测试集的预测标签
+    """
+    from sklearn.model_selection import train_test_split, GridSearchCV
+    from sklearn.metrics import classification_report
+    from sklearn.ensemble import GradientBoostingClassifier
+    
+    # 划分训练集和测试集
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, labels, test_size=test_size, random_state=random_state, stratify=labels
+    )
+    
+    # 参数网格搜索
+    param_grid = {
+        'n_estimators': [50, 100, 200],
+        'learning_rate': [0.01, 0.1, 0.2],
+        'max_depth': [3, 5, 7],
+        'subsample': [0.8, 1.0]
+    }
+    
+    # 使用网格搜索找到最佳参数
+    grid_search = GridSearchCV(
+        GradientBoostingClassifier(random_state=random_state),
+        param_grid,
+        cv=5,
+        scoring='accuracy',
+        n_jobs=-1
+    )
+    grid_search.fit(X_train, y_train)
+    
+    print(f"GBC最佳参数: {grid_search.best_params_}")
+    
+    # 使用最佳参数构建和训练模型
+    clf = grid_search.best_estimator_
+    
+    # 在测试集上评估模型
+    y_pred = clf.predict(X_test)
+    report = classification_report(y_test, y_pred)
+    
+    return clf, report, y_test, y_pred

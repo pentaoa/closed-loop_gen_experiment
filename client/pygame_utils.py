@@ -106,6 +106,7 @@ class Controller:
     def __init__(self, model, view):
         self.model = model
         self.view = view
+        
 
     def run(self):
         self.model.start_data_collection()
@@ -119,8 +120,7 @@ class Controller:
                         running = False
 
             # Add a small sleep to prevent high CPU usage
-            time.sleep(0.01)        
-        quit()
+            time.sleep(0.01)
 
 
     def start_experiment_1(self, image_set_path, pre_eeg_path):
@@ -161,8 +161,8 @@ class Controller:
                 # 发送触发器，使用图片的索引作为触发器代码
                 self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
-                time.sleep(3)  # 显示图片 3s
-                self.view.display_fixation()
+                time.sleep(5)  # 显示图片 5s
+                self.view.clear_screen()
                 time.sleep(1)  # 显示注视点 1s
         
         # 再展示 Dis 图片 (5次)
@@ -183,8 +183,8 @@ class Controller:
                 # 发送触发器，使用图片的索引作为触发器代码
                 self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
-                time.sleep(3)  # 显示图片 3s
-                self.view.display_fixation()
+                time.sleep(5)  # 显示图片 5s
+                self.view.clear_screen()
                 time.sleep(1)  # 显示注视点 1s
 
         # 采集结束，保存数据
@@ -200,8 +200,8 @@ class Controller:
         image = pg.image.load(image_path)
         self.view.display_image(image)
         self.model.trigger(1)  # 使用图像的索引发送触发器
-        time.sleep(3)
-        self.view.display_fixation()
+        time.sleep(5)
+        self.view.clear_screen()
         time.sleep(1)
 
         self.view.display_text('Processing...')
@@ -212,31 +212,12 @@ class Controller:
         filters = prepare_filters(fs = self.model.sample_rate, new_fs=250)
         data = real_time_process(event_data, filters)
         return data
-
-    def start_collection(self, image_paths, instant_eeg_path):
-        self.view.display_text('Ready to start')
-        # self.model.start_data_collection()
-        time.sleep(0.5)  # 500ms 黑屏
-        
-        # 使用传入的 image_paths 列表
-        for idx, image_path in enumerate(image_paths):
-            # 直接使用传入的图像路径加载图像
-            image = pg.image.load(image_path)  # 加载图像
-            self.view.display_image(image)
-            self.model.trigger(idx + 1)  # 使用图像的索引发送触发器
-            time.sleep(3)
-            self.view.display_fixation()
-            time.sleep(1)
-        
-        # self.model.stop_data_collection()
-        self.view.display_text('Processing...')
-        self.model.save_instant_eeg(instant_eeg_path)
-        self.view.display_text('Data saved')
-        
-    def black_screen_post(self):
+    
+    def rating(self):
+        self.view.display_text('Please rate the image')
+        time.sleep(1)
         self.view.clear_screen()
-        time.sleep(0.75)  # 750ms 黑屏
-        self.blink_time()
+        
 
     def end_experiment(self):
         self.view.display_text('Thank you!')
@@ -250,7 +231,13 @@ class Controller:
 class View:
     def __init__(self):
         pg.init()
-        self.screen = pg.display.set_mode((800, 600))
+        
+        # 显示器信息
+        display_info = pg.display.Info()
+        screen_width, screen_height = display_info.current_w, display_info.current_h
+        
+        # 全屏模式
+        self.screen = pg.display.set_mode((screen_width, screen_height), pg.FULLSCREEN)
         pg.display.set_caption('Closed Loop Experiment')
         self.font = pg.font.Font(None, 40)
 
@@ -271,9 +258,36 @@ class View:
         pg.display.flip()
 
     def display_image(self, image):
-        # 缩放图片到屏幕大小
-        image = pg.transform.scale(image, (800, 600))
-        self.screen.blit(image, (0, 0))
+        # 获取当前屏幕分辨率
+        screen_width, screen_height = self.screen.get_size()
+        
+        # 获取图片的原始尺寸
+        img_width, img_height = image.get_size()
+        
+        # 计算宽高比
+        width_ratio = screen_width / img_width
+        height_ratio = screen_height / img_height
+        
+        # 选择较小的比例以确保图片完全显示在屏幕内
+        scale_ratio = min(width_ratio, height_ratio)
+        
+        # 计算缩放后的尺寸
+        new_width = int(img_width * scale_ratio)
+        new_height = int(img_height * scale_ratio)
+        
+        # 缩放图片
+        scaled_image = pg.transform.scale(image, (new_width, new_height))
+        
+        # 计算居中位置
+        x_pos = (screen_width - new_width) // 2
+        y_pos = (screen_height - new_height) // 2
+        
+        # 先填充黑色背景
+        self.screen.fill((0, 0, 0))
+        
+        # 在居中位置绘制图片
+        self.screen.blit(scaled_image, (x_pos, y_pos))
+        
         # 更新屏幕显示
         pg.display.flip()
 
@@ -292,7 +306,86 @@ class View:
             y += line_surface.get_height() + line_spacing  # 更新y坐标，为下一行做准备
 
         pg.display.flip()  # 更新屏幕显示
-
+        
+    def rating(self):
+        """显示评分界面，让用户输入0-1之间的两位小数"""
+        # 初始值
+        input_text = ""
+        active = True
+        max_length = 4  # 最多4个字符 (0.xx)
+        
+        # 计算输入框位置
+        screen_width = self.view.screen.get_width()
+        screen_height = self.view.screen.get_height()
+        input_rect = pg.Rect(screen_width//2 - 100, screen_height//2, 200, 50)
+        
+        # 进入输入循环
+        while active:
+            # 处理所有事件
+            for event in pg.event.get():
+                if event.type == pg.QUIT:
+                    return None
+                elif event.type == pg.KEYDOWN:
+                    if event.key == pg.K_RETURN:
+                        # 确认输入，检查格式
+                        try:
+                            score = float(input_text)
+                            if 0 <= score <= 1:
+                                active = False  # 退出循环
+                            else:
+                                # 显示错误提示
+                                self.view.display_text("请输入0-1之间的值！")
+                                time.sleep(1)
+                        except ValueError:
+                            # 显示错误提示
+                            self.view.display_text("请输入有效的小数！")
+                            time.sleep(1)
+                    elif event.key == pg.K_BACKSPACE:
+                        # 删除最后一个字符
+                        input_text = input_text[:-1]
+                    elif event.key == pg.K_ESCAPE:
+                        # ESC键退出
+                        return None
+                    else:
+                        # 只接受数字和小数点
+                        if event.unicode in '0123456789.' and len(input_text) < max_length:
+                            # 确保只有一个小数点
+                            if event.unicode == '.' and '.' in input_text:
+                                continue
+                            # 确保小数点后最多两位
+                            if '.' in input_text and len(input_text.split('.')[1]) >= 2 and event.unicode != '.':
+                                continue
+                            input_text += event.unicode
+            
+            # 清屏
+            self.view.screen.fill((0, 0, 0))
+            
+            # 绘制说明文本
+            instruction_text = self.view.font.render("请输入是否高兴的评分 (0-1之间的两位小数):", True, (255, 255, 255))
+            self.view.screen.blit(instruction_text, (screen_width//2 - instruction_text.get_width()//2, 
+                                                screen_height//2 - 80))
+            
+            # 绘制输入框
+            pg.draw.rect(self.view.screen, (255, 255, 255), input_rect, 2)
+            
+            # 显示当前输入的文本
+            text_surface = self.view.font.render(input_text, True, (255, 255, 255))
+            self.view.screen.blit(text_surface, (input_rect.x + 10, input_rect.y + 10))
+            
+            # 显示用法提示
+            hint_text = self.view.font.render("按回车确认, ESC取消", True, (200, 200, 200))
+            self.view.screen.blit(hint_text, (screen_width//2 - hint_text.get_width()//2, 
+                                            screen_height//2 + 80))
+            
+            # 更新显示
+            pg.display.flip()
+            
+            # 小延迟减少CPU使用
+            time.sleep(0.01)
+        
+        # 返回有效的评分结果
+        return float(input_text)
+    
 # 适用于离线实验采集
 if __name__ == '__main__':
     pre_eeg_path = f'client\pre_eeg'

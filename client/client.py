@@ -64,7 +64,7 @@ def experiment_1():
     # print("Selected channels:", selected_channel_idxes)
     
     # 提取特征并训练分类器
-    features, valid_labels = extract_emotion_psd_features_gpu(eeg_data, labels, fs)
+    features, valid_labels = extract_emotion_psd_features(eeg_data, labels, fs)
     print(f"提取的特征形状: {features.shape}")
     print(f"有效标签数量: {len(valid_labels)}")
     
@@ -171,6 +171,8 @@ def experiment_2():
             proba = clf.predict_proba(features)[0]
             predicted_label = 1 if proba[1] > proba[0] else 0
             
+            score = view.rating()
+            
             # 记录当前帧结果
             frame_results.append({
                 'frame': frame,
@@ -179,10 +181,12 @@ def experiment_2():
                 'predicted_label': predicted_label,
                 'prob_dis': proba[0],
                 'prob_amu': proba[1],
-                'correct': (predicted_label == true_label)
+                'correct': (predicted_label == true_label),
+                'score': score
             })
             
             print(f"预测概率: Dis={proba[0]:.2f}, Amu={proba[1]:.2f}")
+            print(f"用户评分: {score}")
             print(f"预测标签: {'Amu' if predicted_label == 1 else 'Dis'}, 实际标签: {'Amu' if true_label == 1 else 'Dis'}")
             print(f"预测结果: {'✓ 正确' if predicted_label == true_label else '✗ 错误'}\n")
             
@@ -296,10 +300,18 @@ def run_experiments_in_thread():
         print("Experiment 2 started in a separate thread")
 
 if __name__ == '__main__':
-    # Start the controller
-    controller_thread = threading.Thread(target=controller.run)
-    controller_thread.daemon = True
-    controller_thread.start()
+    # 主线程保持 Pygame 事件循环
+    running = True
+    while running:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                running = False
+            elif event.type == pg.KEYDOWN:
+                if event.key == pg.K_ESCAPE:
+                    running = False
+        
+        pg.display.update()  # 更新显示
+        time.sleep(0.01)  # 短暂休眠减少 CPU 使用
     
     # Give the controller time to initialize
     time.sleep(3)
