@@ -1,5 +1,4 @@
 import os
-import torch
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
@@ -62,7 +61,7 @@ def extract_emotion_psd_features(eeg_data, labels, fs=250, selected_channel_idxe
     :param labels: 每个样本对应的标签（1: positive, 2: negative）
     :param fs: 采样率，默认 250Hz
     :param selected_channel_idxes: 指定的通道索引列表。如果为 None，则使用所有通道
-    :return: features (n_samples, n_features), labels (n_samples,)
+    :return: features (n_samples, n_features), la   axbels (n_samples,)
     """
     features = []
     valid_labels = []
@@ -75,6 +74,7 @@ def extract_emotion_psd_features(eeg_data, labels, fs=250, selected_channel_idxe
         # 计算功率谱密度
         psd, _ = psd_array_multitaper(eeg_sample, fs, adaptive=True, normalization='full', verbose=0)
         psd_flat = psd.flatten() # 将2D的PSD矩阵(通道×频率)展平为1D向量
+        print(psd_flat.mean(), psd_flat.std()) # 打印均值和标准差
         features.append(psd_flat) # 添加到特征列表
         valid_labels.append(labels[i]) # 添加对应的标签
 

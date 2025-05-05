@@ -5,6 +5,7 @@ import numpy as np
 import pygame as pg
 import joblib
 import random
+import threading
 
 from pygame_utils import Model, View, Controller
 from client_utils import *
@@ -18,7 +19,7 @@ pre_eeg_path = f'client/data/sub{subject_id}/pre_eeg'
 instant_eeg_path = 'server/data/instant_eeg'
 image_set_path = 'stimuli_SX'
 
-selected_channel_idxes = []
+# selected_channel_idxes = [28, 37, 23, 33]
 clf = None
 
 model = Model()
@@ -59,11 +60,11 @@ def experiment_1():
     print(f"Loaded {len(eeg_data)} EEG samples with shape {eeg_data.shape}")
 
     # 获取选定的通道
-    selected_channel_idxes = get_selected_channel_idxes(eeg_data, fs, 4)
-    print("Selected channels:", selected_channel_idxes)
+    # selected_channel_idxes = get_selected_channel_idxes(eeg_data, fs, 4)
+    # print("Selected channels:", selected_channel_idxes)
     
     # 提取特征并训练分类器
-    features, valid_labels = extract_emotion_psd_features(eeg_data, labels, fs, selected_channel_idxes)
+    features, valid_labels = extract_emotion_psd_features_gpu(eeg_data, labels, fs)
     print(f"提取的特征形状: {features.shape}")
     print(f"有效标签数量: {len(valid_labels)}")
     
@@ -76,8 +77,10 @@ def experiment_1():
     # 训练分类器和评估
     clf, report, y_test, y_pred = train_emotion_classifier(features, valid_labels, 0.2, 42)
     print("\n分类器报告:")
-    print(report)        
-
+    print(report)  
+    global experiment_stage
+    experiment_stage = 2
+    run_experiments_in_thread()
 
 def experiment_2():
     global selected_channel_idxes
@@ -131,31 +134,14 @@ def experiment_2():
         current_label = [true_label]  # 创建单个元素的标签列表
         print(f"当前标签: {true_label}")
         
-        # 为当前帧创建保存路径
-        frame_save_path = os.path.join(f'server/data/sub{subject_id}/test_results', f"frame_{frame}")
-        os.makedirs(frame_save_path, exist_ok=True)
-        
-        # 使用 collect_and_save_eeg_for_all_images 函数处理单个图像
-        collect_and_save_eeg([img_path], frame_save_path, current_label)
-        
-        # time.sleep(10)
-        
-        # 查找保存的EEG文件
-        eeg_files = [f for f in os.listdir(frame_save_path) if f.endswith('.npy')]
-        while (not eeg_files):
-            print("等待EEG数据文件...")
-            time.sleep(1)
-            
-        
-        
         # 加载第一个找到的EEG文件
-        eeg_file = os.path.join(frame_save_path, eeg_files[0])
-        eeg_data = np.load(eeg_file)
+        eeg_data = collect_one_event_eeg(img_path)
         eeg_data = np.expand_dims(eeg_data, axis=0)  # 扩展为 (1, 通道数, 时间点)
         print(f"EEG 数据已加载，形状为{eeg_data.shape}")
     
         # 提取特征
-        features, valid_labels = extract_emotion_psd_features(eeg_data, current_label, fs, selected_channel_idxes)
+        features, valid_labels = extract_emotion_psd_features(eeg_data, current_label, fs)
+        # features, valid_labels = extract_emotion_psd_features(eeg_data, current_label, fs, selected_channel_idxes)
         print(f"提取的特征形状: {features.shape}")
         print(f"有效标签数量: {len(valid_labels)}")
         
@@ -228,6 +214,8 @@ def experiment_2():
         print(f"总体准确率: {accuracy:.2f} ({correct_frames}/{total_frames})")
         print(f"Amu情绪准确率: {amu_accuracy:.2f} ({amu_correct}/{amu_frames})")
         print(f"Dis情绪准确率: {dis_accuracy:.2f} ({dis_correct}/{dis_frames})")
+    
+    quit
 
 def collect_and_save_eeg(image_paths, save_path, label_list):
     """
@@ -287,12 +275,41 @@ def collect_and_save_eeg(image_paths, save_path, label_list):
     
     print("EEG数据收集和保存完成")
 
+def collect_one_event_eeg(image_path):
+    data = controller.collect_data(image_path)
+    return data
 
-if __name__ == '__main__':
-    controller.run()
-    
+def run_experiments_in_thread():
+    """Run the experiments in a separate thread"""
     if experiment_stage == 1:
-        experiment_1()
+        # Run experiment 1 in a separate thread
+        exp_thread = threading.Thread(target=experiment_1)
+        exp_thread.daemon = True  # Make thread exit when main program exits
+        exp_thread.start()
+        print("Experiment 1 started in a separate thread")
     
     elif experiment_stage == 2:
-        experiment_2()  
+        # Run experiment 2 in a separate thread
+        exp_thread = threading.Thread(target=experiment_2)
+        exp_thread.daemon = True  # Make thread exit when main program exits
+        exp_thread.start()
+        print("Experiment 2 started in a separate thread")
+
+if __name__ == '__main__':
+    # Start the controller
+    controller_thread = threading.Thread(target=controller.run)
+    controller_thread.daemon = True
+    controller_thread.start()
+    
+    # Give the controller time to initialize
+    time.sleep(3)
+    
+    # Run the appropriate experiment
+    run_experiments_in_thread()
+    
+    # Keep the main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Program terminated by user")

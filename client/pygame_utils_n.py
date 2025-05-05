@@ -7,35 +7,45 @@ import gc
 
 from neuracle_api import DataServerThread
 from triggerBox import TriggerBox, PackageSensorPara
-from eeg_process import *
+from eeg_process import prepare_filters, real_time_processing, create_event_based_npy
 
 class Model:
     def __init__(self):
-        self.sample_rate = 250
+        self.sample_rate = 1000
         self.t_buffer = 1000
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM3")
+        self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
+        # meta包还没解析好就等待
+        while not self.thread_data_server.isReady():
+            continue
 
-    def start_data_collection(self):
-        notConnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
-        if notConnect:
-            raise Exception("Can't connect to JellyFish, please check the hostport.")
-        else:
-            while not self.thread_data_server.isReady():
-                time.sleep(0.1)
-                continue
-            self.thread_data_server.start()
-            print("Data collection started.")
+
+    # def start_data_collection(self):
+    #     notConnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
+    #     if notConnect:
+    #         raise Exception("Can't connect to JellyFish, please check the hostport.")
+    #     else:
+    #         while not self.thread_data_server.isReady():
+    #             time.sleep(1)
+    #             continue
+    #         self.thread_data_server.start()
+    #         print("Data collection started.")
 
     def trigger(self, label):
         code = int(label)  # 直接将传入的类别编号转换为整数
         print(f'Sending trigger for label {label}: {code}')
         self.triggerbox.output_event_data(code)
 
-    def stop_data_collection(self):
-        self.flagstop = True
-        self.thread_data_server.stop()
+    # def restart_data_collection(self):
+    #     self.flagstop = False
+    #     self.thread_data_server.reset_buffer_data()
+    #     self.thread_data_server.start()
+
+    # def stop_data_collection(self):
+    #     self.flagstop = True
+    #     self.thread_data_server.stop()
 
     def save_pre_eeg(self, pre_eeg_path):
         original_data_path = os.path.join(pre_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
@@ -50,7 +60,7 @@ class Model:
         print("Pre-experiment data saved!")
 
         # 进行数据预处理
-        filters = prepare_filters(fs = self.sample_rate, new_fs=250)
+        filters = prepare_filters(fs = 1000, new_fs=250)
         real_time_processing(original_data_path, preprocess_data_path, filters)
         print("Pre-experiment data preprocessed!")
 
@@ -66,19 +76,26 @@ class Model:
         print("Labels saved!")
 
     def save_instant_eeg(self, instant_eeg_path):
-        data = self.thread_data_server.GetBufferData()
-        event_data_list = create_last_event_npy(data, 1)
-        event_data = event_data_list[0]  # 取第一个事件数据
-        filters = prepare_filters(fs = self.sample_rate, new_fs=250)
-        data = real_time_process(event_data, filters)
-        np.save(os.path.join(instant_eeg_path, f'{time.strftime("%Y%m%d-%H%M%S")}.npy'), data)
-        print("Instant EEG data saved!")
+        original_data_path = os.path.join(instant_eeg_path, f'original\{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        preprocess_data_path = os.path.join(instant_eeg_path, f'preprocessed\{time.strftime("%Y%m%d-%H%M%S")}.npy')
+        
+        # 重新创建文件夹
+        os.makedirs(os.path.dirname(original_data_path), exist_ok=True)
+        os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
 
-    def get_event_data(self):
         data = self.thread_data_server.GetBufferData()
-        event_data_list = create_last_event_npy(data, 1)
-        return event_data_list
-    
+        np.save(original_data_path, data)
+        print("Pre-experiment data saved!")
+
+        # 进行数据预处理
+        filters = prepare_filters(fs = 1000, new_fs=250)
+        real_time_processing(original_data_path, preprocess_data_path, filters)
+        print("Pre-experiment data preprocessed!")
+
+        # 数据 event-based 处理
+        create_event_based_npy(original_data_path, preprocess_data_path, instant_eeg_path)
+
+
     def get_next_sequence(self):
         # 确保不会超出列表范围
         if self.current_sequence * self.num_per_event >= len(self.sequence_indices):
@@ -108,7 +125,7 @@ class Controller:
         self.view = view
 
     def run(self):
-        self.model.start_data_collection()
+        # self.model.start_data_collection()
         running = True
         while running:
             for event in pg.event.get():
@@ -117,9 +134,9 @@ class Controller:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         running = False
-
-            # Add a small sleep to prevent high CPU usage
-            time.sleep(0.01)        
+                        
+        pg.quit()
+        gc.collect()
         quit()
 
 
@@ -144,7 +161,7 @@ class Controller:
         time.sleep(0.50)  # 500ms 黑屏
         
         # 先展示 Amu 图片 (5次)
-        for repeat in range(5):
+        for repeat in range(1):
             print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
             random.shuffle(amu_images)  # 每轮随机打乱顺序
             
@@ -161,12 +178,12 @@ class Controller:
                 # 发送触发器，使用图片的索引作为触发器代码
                 self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
-                time.sleep(3)  # 显示图片 3s
+                time.sleep(1)  # 显示图片 1s
                 self.view.display_fixation()
                 time.sleep(1)  # 显示注视点 1s
         
         # 再展示 Dis 图片 (5次)
-        for repeat in range(5):
+        for repeat in range(1):
             print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
             random.shuffle(dis_images)  # 每轮随机打乱顺序
             
@@ -183,7 +200,7 @@ class Controller:
                 # 发送触发器，使用图片的索引作为触发器代码
                 self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
                 
-                time.sleep(3)  # 显示图片 3s
+                time.sleep(1)  # 显示图片 1s
                 self.view.display_fixation()
                 time.sleep(1)  # 显示注视点 1s
 
@@ -191,48 +208,29 @@ class Controller:
         self.view.display_text('Pre-experiment finished')
         self.model.save_pre_eeg(pre_eeg_path)
         self.model.save_labels(labels, pre_eeg_path)
+        # self.model.stop_data_collection()
         self.view.display_text('Data saved')
 
-    def collect_data(self, image_path):
+    def start_collection(self, instant_image_path, instant_eeg_path):
         self.view.display_text('Ready to start')
-        time.sleep(0.5)
-
-        image = pg.image.load(image_path)
-        self.view.display_image(image)
-        self.model.trigger(1)  # 使用图像的索引发送触发器
-        time.sleep(3)
-        self.view.display_fixation()
-        time.sleep(1)
-
-        self.view.display_text('Processing...')
-
-        data = self.model.thread_data_server.GetBufferData()
-        event_data_list = create_last_event_npy(data, 1)
-        event_data = event_data_list[0]  # 取第一个事件数据
-        filters = prepare_filters(fs = self.model.sample_rate, new_fs=250)
-        data = real_time_process(event_data, filters)
-        return data
-
-    def start_collection(self, image_paths, instant_eeg_path):
-        self.view.display_text('Ready to start')
-        # self.model.start_data_collection()
-        time.sleep(0.5)  # 500ms 黑屏
-        
-        # 使用传入的 image_paths 列表
-        for idx, image_path in enumerate(image_paths):
-            # 直接使用传入的图像路径加载图像
+        self.model.thread_data_server.start()
+        time.sleep(5)
+        # 获取 instant_image_path 下的所有图片
+        image_files = sorted(os.listdir(instant_image_path))
+        for idx, image_file in enumerate(image_files):
+            image_path = os.path.join(instant_image_path, image_file)
             image = pg.image.load(image_path)  # 加载图像
             self.view.display_image(image)
             self.model.trigger(idx + 1)  # 使用图像的索引发送触发器
-            time.sleep(3)
+            time.sleep(1)
             self.view.display_fixation()
             time.sleep(1)
         
-        # self.model.stop_data_collection()
         self.view.display_text('Processing...')
         self.model.save_instant_eeg(instant_eeg_path)
         self.view.display_text('Data saved')
-        
+        self.model.thread_data_server.stop()
+
     def black_screen_post(self):
         self.view.clear_screen()
         time.sleep(0.75)  # 750ms 黑屏
@@ -293,15 +291,3 @@ class View:
 
         pg.display.flip()  # 更新屏幕显示
 
-# 适用于离线实验采集
-if __name__ == '__main__':
-    pre_eeg_path = f'client\pre_eeg'
-    instant_eeg_path = f'client\instant_eeg'
-    instant_image_path = f'client\instant_image'
-    image_set_path = f'stimuli_SX' 
-    
-    model = Model()
-    view = View()
-    controller = Controller(model, view)
-
-    controller.start_experiment_1(image_set_path, pre_eeg_path)
