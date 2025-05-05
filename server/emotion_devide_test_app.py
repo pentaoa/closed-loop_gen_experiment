@@ -24,7 +24,7 @@ socketio = SocketIO(app)
 
 # 实验参数
 subject_id = 3
-run_id = 1 
+run_id = 1
 fs = 250
 
 # 路径参数
@@ -33,12 +33,10 @@ pre_eeg_path = f'server/data/sub{subject_id}/pre_eeg' # TODO: 验证
 instant_eeg_path = 'server/data/instant_eeg'
 
 # 全局变量
-selected_channel_idxes = [28, 37, 23, 33]
+selected_channel_idxes = []
 target_image_path = None
 target_eeg_path = None
-features = None
 clf = None
-pca = None
 
 @socketio.on('connect')
 def handle_connect(auth):
@@ -49,11 +47,8 @@ def handle_connect(auth):
 @app.route('/experiment_1_eeg_upload', methods=['POST'])
 def experiment_1():
     global selected_channel_idxes
-    global target_image_path
     global target_eeg_path
-    global features
     global clf
-    global pca
     
     print("\n" + "#" * 50)
     print("情感分类器训练")
@@ -111,11 +106,11 @@ def experiment_1():
     print(f"提取的特征形状: {features.shape}")
     print(f"有效标签数量: {len(valid_labels)}")
     
-    pca = PCA(n_components=0.95)
-    features = pca.fit_transform(features)
-    print(f"使用PCA降维后的特征形状: {features.shape}")
+    # pca = PCA(n_components=0.95)
+    # features = pca.fit_transform(features)
+    # print(f"使用PCA降维后的特征形状: {features.shape}")
     
-    joblib.dump(pca, 'server/pca_model.pkl')
+    # joblib.dump(pca, 'server/pca_model.pkl')
 
     # 训练分类器和评估
     clf, report, y_test, y_pred = train_emotion_classifier(features, valid_labels, 0.2, 42)
@@ -133,11 +128,8 @@ def experiment_1():
 @app.route('/experiment_2', methods=['POST'])
 def experiment_2():
     global selected_channel_idxes
-    global target_image_path
     global target_eeg_path
-    global features
     global clf
-    global pca
 
     print("\n" + "#" * 50)
     print("实时情感分类测试")
