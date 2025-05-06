@@ -1,4 +1,5 @@
 import base64
+import json
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 import joblib
@@ -11,6 +12,7 @@ import os
 import random
 import shutil
 import time
+from threading import Event
 
 from modulation_utils import *
 from modulation import fusion_image_to_images
@@ -26,144 +28,50 @@ app = Flask(__name__)
 socketio = SocketIO(app)
 
 # 实验参数
-subject_id = 3
-run_id = 1
+subject_id = 1
 fs = 250
 num_loops = 10
 
-
+ratings = []
 
 # 路径参数
 image_set_path = 'stimuli_SX'
 pre_eeg_path = f'server/data/sub{subject_id}/pre_eeg' # TODO: 验证
 instant_eeg_path = 'server/data/instant_eeg'
+target_image_path = 'stimuli_SX/Dis-07.jpg'
+
 
 # 全局变量
 selected_channel_idxes = []
 target_image_path = None
 target_eeg_path = None
 clf = None
+rating_received_event = Event()
 
 @socketio.on('connect')
 def handle_connect(auth):
     print('Client connected')
-    print('Send: experiment_1_ready')
-    socketio.emit('experiment_2_ready')
-
-@app.route('/experiment_1_eeg_upload', methods=['POST'])
-def experiment_1():
-    global selected_channel_idxes
-    global target_eeg_path
-    global clf
-    
-    print("\n" + "#" * 50)
-    print("情感分类器训练")
-    print("#" * 50 + "\n")
-    
-    if 'files' not in request.files:
-        return jsonify({"message": "No file part"}), 400
-
-    files = request.files.getlist('files')
-    if not files:
-        return jsonify({"message": "No selected files"}), 400
-
-    for file in files:
-        if file.filename == '':
-            return jsonify({"message": "No selected file"}), 400
-        if file:
-            filename = file.filename
-            save_path = os.path.join(pre_eeg_path, filename)
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            file.save(save_path)
-            
-    print(f"Saved {len(files)} files to {pre_eeg_path}")
-
-    # 首先检查并加载标签文件
-    labels_path = os.path.join(pre_eeg_path, 'labels.npy')
-    if not os.path.exists(labels_path):
-        return jsonify({"message": "Labels file not found"}), 400
-    
-    # 加载标签
-    labels = np.load(labels_path)
-    print(f"Loaded labels: {labels}")
-    
-    # 获取所有EEG数据文件（排除labels.npy）
-    eeg_files = [f for f in sorted(os.listdir(pre_eeg_path)) 
-                 if f.endswith('.npy') and f != 'labels.npy']
-    
-    if len(eeg_files) != len(labels):
-        print(f"Warning: Number of EEG files ({len(eeg_files)}) doesn't match number of labels ({len(labels)})")
-    
-    # 转换标签
-    labels = get_binary_labels(labels)
-    
-    # 加载EEG数据
-    eeg_file_paths = [os.path.join(pre_eeg_path, f) for f in eeg_files]
-    eeg_data = np.array([np.load(file) for file in eeg_file_paths])  # (n_samples, n_channels, n_timepoints)
-    
-    print(f"Loaded {len(eeg_data)} EEG samples with shape {eeg_data.shape}")
-
-    # 获取选定的通道
-    selected_channel_idxes = get_selected_channel_idxes(eeg_data, fs, 4)
-    print("Selected channels:", selected_channel_idxes)
-    
-    # 提取特征并训练分类器
-    features, valid_labels = extract_emotion_psd_features(eeg_data, labels, fs, selected_channel_idxes)
-    print(f"提取的特征形状: {features.shape}")
-    print(f"有效标签数量: {len(valid_labels)}")
-    
-    # pca = PCA(n_components=0.95)
-    # features = pca.fit_transform(features)
-    # print(f"使用PCA降维后的特征形状: {features.shape}")
-    
-    # joblib.dump(pca, 'server/pca_model.pkl')
-
-    # 训练分类器和评估
-    clf, report, y_test, y_pred = train_emotion_classifier(features, valid_labels, 0.2, 42)
-    print("\n分类器报告:")
-    print(report)
-    
-    # 向客户端发送信号，表示已准备好进行下一阶段的实验
     print('Send: experiment_2_ready')
-    socketio.emit('experiment_2_ready') 
-
-    return jsonify({
-        "message": f"Files uploaded and processed successfully"
-    }), 200
+    socketio.emit('experiment_2_ready')
 
 @app.route('/experiment_2', methods=['POST'])
 def experiment_2():
     global selected_channel_idxes
     global target_eeg_path
-    global clf
+    global target_image_path
+    global ratings
 
     print("\n" + "#" * 50)
-    print("实时情感分类测试")
+    print("图片 rating 迭代实验")
     print("#" * 50 + "\n")
     
-    # 检查分类器是否为 None，如果是则加载备用模型
-    if clf is None:
-        try:
-            best_model_path = 'server/best_emotion_model.pkl'
-            pca = joblib.load('server/pca_model.pkl')
-            if os.path.exists(best_model_path):
-                clf = joblib.load(best_model_path)
-                print(f"成功加载备用分类器: {best_model_path}")
-            else:
-                return jsonify({
-                    "message": "没有可用的分类器。请先运行 experiment_1 训练分类器，或确保备用模型文件存在。",
-                    "error": "classifier_not_found"
-                }), 400
-        except Exception as e:
-            return jsonify({
-                "message": f"加载备用分类器时出错: {str(e)}",
-                "error": "classifier_load_failed"
-            }), 500    
+    base_seed = 10000 * subject_id
+    base_save_path = f'server/data/sub{subject_id}/rating_experiment'
+    os.makedirs(base_save_path, exist_ok=True)
     
     # 获取所有图片    
     all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
     
-    # 按情绪类别分组图片
     amu_images = [f for f in all_image_files if f.startswith('Amu-')]
     dis_images = [f for f in all_image_files if f.startswith('Dis-')]
     test_images = amu_images + dis_images
@@ -172,158 +80,248 @@ def experiment_2():
     print(f"一共 {len(test_images)} 张图片")
     
     # 随机所有照片
+    random.seed(base_seed)
     random.shuffle(test_images)
-
     
-    frame = 0
-    frame_results = []
-
-    while True:
-        print(f"Frame {frame}")
-        
-        if frame >= len(test_images):
-            print("所有图片已处理，结束实验")
-            break
-
-        # 获取当前图片
-        current_image = test_images[frame]
-        img_path = os.path.join(image_set_path, current_image)
-        
-        # 记录标签（假设图片名称中包含情绪类别信息）
-        true_label = 1 if current_image.startswith('Amu-') else 0
-        current_label = [true_label]  # 创建单个元素的标签列表
-        print(f"当前标签: {true_label}")
-        
-        # 为当前帧创建保存路径
-        frame_save_path = os.path.join(f'server/data/sub{subject_id}/test_results', f"frame_{frame}")
-        os.makedirs(frame_save_path, exist_ok=True)
-        
-        # 使用 collect_and_save_eeg_for_all_images 函数处理单个图像
-        collect_and_save_eeg_for_all_images([img_path], frame_save_path, current_label)
-        
-        # time.sleep(10)
-        
-        # 查找保存的EEG文件
-        eeg_files = [f for f in os.listdir(frame_save_path) if f.endswith('.npy')]
-        
-        
-        # 加载第一个找到的EEG文件
-        eeg_file = os.path.join(frame_save_path, eeg_files[0])
-        eeg_data = np.load(eeg_file)
-        eeg_data = np.expand_dims(eeg_data, axis=0)  # 扩展为 (1, 通道数, 时间点)
-        print(f"EEG 数据已加载，形状为{eeg_data.shape}")
+    test_images_path = [os.path.join(image_set_path, test_image) for test_image in test_images]
     
-        # 提取特征
-        features, valid_labels = extract_emotion_psd_features(eeg_data, current_label, fs, selected_channel_idxes)
-        print(f"提取的特征形状: {features.shape}")
-        print(f"有效标签数量: {len(valid_labels)}")
+    # 如果存在目标图片，则从测试集中移除
+    if target_image_path in test_images_path:
+        test_images_path.remove(target_image_path)
+    
+    processed_paths = set()
+    
+    all_chosen_ratings = []      # 记录所有选中图片的评分
+    all_chosen_image_paths = []  # 记录所有选中的图片路径
+    history_best_ratings = []    # 记录每一轮的最高评分
+    
+    for i in range(num_loops):
+        print(f"第 {i+1} 轮实验")
+        round_save_path = os.path.join(base_save_path, f'loop_{i+1}')
+        os.makedirs(round_save_path, exist_ok=True)
         
-        # 使用分类器进行预测
-        if features.shape[0] > 0:  # 确保提取到了特征
-            # 检查分类器预期的特征维度
-            expected_n_features = clf.n_features_in_
-            actual_n_features = features.shape[1]
+        loop_sample_images = []  # 当前轮次的图片集合
+        loop_ratings = []        # 当前轮次的评分集合
+        
+        if i == 0:
+            # 第一轮随机抽取10张图片
+            first_ten_dir = os.path.join(round_save_path, 'first_ten')
+            os.makedirs(first_ten_dir, exist_ok=True)
             
-            if actual_n_features != expected_n_features:
-                print(f"警告: 特征维度不匹配! 预期 {expected_n_features}，实际 {actual_n_features}")
-                
-                if actual_n_features < expected_n_features:
-                    # 如果特征维度小于预期，填充零
-                    padding = np.zeros((features.shape[0], expected_n_features - actual_n_features))
-                    features = np.hstack((features, padding))
-                    print(f"已填充特征至维度: {features.shape}")
-                else:
-                    # 如果特征维度大于预期，截断
-                    features = features[:, :expected_n_features]
-                    print(f"已截断特征至维度: {features.shape}")
+            # 从未处理的图片中随机选择10张
+            available_paths = [path for path in test_images_path if path not in processed_paths]
+            sample_image_paths = sorted(random.sample(available_paths, min(10, len(available_paths))))
+            processed_paths.update(sample_image_paths)
             
-            # # 使用PCA降维
-            # features = pca.transform(features)
-            # print(f"使用PCA降维后的特征形状: {features.shape}")
+            # 发送图片并收集评分
+            success = send_images_and_collect_ratings(sample_image_paths, first_ten_dir)
+            if not success:
+                return jsonify({"message": "评分收集失败"}), 500
             
-            proba = clf.predict_proba(features)[0]
-            predicted_label = 1 if proba[1] > proba[0] else 0
+            # 使用用户评分作为相似度
+            user_ratings = ratings.copy()
             
-            # 记录当前帧结果
-            frame_results.append({
-                'frame': frame,
-                'image': current_image,
-                'true_label': true_label,
-                'predicted_label': predicted_label,
-                'prob_dis': proba[0],
-                'prob_amu': proba[1],
-                'correct': (predicted_label == true_label)
-            })
+            # 记录图片和评分
+            loop_sample_images = sample_image_paths
+            loop_ratings = user_ratings
             
-            print(f"预测概率: Dis={proba[0]:.2f}, Amu={proba[1]:.2f}")
-            print(f"预测标签: {'Amu' if predicted_label == 1 else 'Dis'}, 实际标签: {'Amu' if true_label == 1 else 'Dis'}")
-            print(f"预测结果: {'✓ 正确' if predicted_label == true_label else '✗ 错误'}\n")
+            # 根据评分选择最好的两张图片
+            chosen_indices = sorted(range(len(user_ratings)), key=lambda x: user_ratings[x], reverse=True)[:2]
+            chosen_ratings = [user_ratings[idx] for idx in chosen_indices]
+            chosen_image_paths = [sample_image_paths[idx] for idx in chosen_indices]
             
         else:
-            print("警告: 未能提取特征")
+            # 非第一轮，使用之前选择的最佳两张图片
+            chosen_ratings = all_chosen_ratings[-2:]
+            chosen_image_paths = all_chosen_image_paths[-2:]
+            
+            # 将已选图片加入当前轮次集合
+            loop_sample_images.extend(chosen_image_paths)
+            loop_ratings.extend(chosen_ratings)
         
-        frame += 1
+        # 基于当前两张最佳图片融合生成6张新图片
+        fusion_dir = os.path.join(round_save_path, 'fusion')
+        os.makedirs(fusion_dir, exist_ok=True)
+        
+        try:
+            # 使用融合函数生成新图片
+            fusion_image_to_images(chosen_image_paths, 6, fusion_dir, 256)
+            
+            # 获取融合生成的所有图片路径
+            fusion_image_paths = []
+            for image in sorted(os.listdir(fusion_dir)):
+                if image.endswith('.jpg') or image.endswith('.png'):
+                    fusion_image_paths.append(os.path.join(fusion_dir, image))
+            
+            # 发送融合图片并收集评分
+            if fusion_image_paths:
+                success = send_images_and_collect_ratings(fusion_image_paths, fusion_dir)
+                if not success:
+                    return jsonify({"message": "融合图片评分收集失败"}), 500
+                
+                # 获取融合图片的评分
+                fusion_ratings = ratings.copy()
+                
+                # 将融合图片和评分添加到当前轮次集合
+                loop_sample_images.extend(fusion_image_paths)
+                loop_ratings.extend(fusion_ratings)
+        except Exception as e:
+            print(f"图片融合失败: {str(e)}")
+        
+        # 从未处理的图片池中随机选择2张新图片
+        new_samples_dir = os.path.join(round_save_path, 'new_samples')
+        os.makedirs(new_samples_dir, exist_ok=True)
+        
+        available_paths = [path for path in test_images_path if path not in processed_paths]
+        if available_paths:
+            new_sample_paths = sorted(random.sample(available_paths, min(2, len(available_paths))))
+            processed_paths.update(new_sample_paths)
+            
+            # 发送新图片并收集评分
+            if new_sample_paths:
+                success = send_images_and_collect_ratings(new_sample_paths, new_samples_dir)
+                if not success:
+                    return jsonify({"message": "新样本评分收集失败"}), 500
+                
+                # 获取新图片的评分
+                new_ratings = ratings.copy()
+                
+                # 将新图片和评分添加到当前轮次集合
+                loop_sample_images.extend(new_sample_paths)
+                loop_ratings.extend(new_ratings)
+        
+        # 保存当前轮次的所有图片和评分
+        all_ratings_file = os.path.join(round_save_path, 'all_ratings.json')
+        with open(all_ratings_file, 'w') as f:
+            json.dump({
+                "image_paths": loop_sample_images,
+                "ratings": loop_ratings
+            }, f, indent=4)
+        
+        # 计算概率分布（可以使用softmax函数）
+        def softmax(x):
+            exp_x = np.exp(x)
+            return exp_x / exp_x.sum()
+        
+        # 计算选择概率
+        selection_probs = softmax(loop_ratings)
+        
+        # 根据概率选择两张图片
+        # 可以直接选择评分最高的，也可以按概率抽样
+        # 这里选择直接取评分最高的两张
+        if loop_ratings:
+            chosen_indices = sorted(range(len(loop_ratings)), key=lambda x: loop_ratings[x], reverse=True)[:2]
+            chosen_ratings = [loop_ratings[idx] for idx in chosen_indices]
+            chosen_image_paths = [loop_sample_images[idx] for idx in chosen_indices]
+            
+            # 记录选中的图片和评分
+            for rating in chosen_ratings:
+                all_chosen_ratings.append(rating)
+            for image_path in chosen_image_paths:
+                all_chosen_image_paths.append(image_path)
+            
+            # 更新历史最佳评分
+            if chosen_ratings:
+                max_rating = max(chosen_ratings)
+                if not history_best_ratings or max_rating > max(history_best_ratings):
+                    history_best_ratings.append(max_rating)
+                else:
+                    history_best_ratings.append(history_best_ratings[-1])
+        
+        # 打印当前轮次信息
+        print(f"当前轮次选择的图片: {[os.path.basename(p) for p in chosen_image_paths]}")
+        print(f"当前轮次选择的评分: {chosen_ratings}")
+        print(f"历史最佳评分: {history_best_ratings}")
+        
+        # 检查收敛条件
+        if len(history_best_ratings) >= 2 and abs(history_best_ratings[-1] - history_best_ratings[-2]) <= 1e-4:
+            print("评分已收敛，提前结束实验")
+            break
     
-    # 给出测试结果
-    print("测试结果:")
+    # 保存实验总结数据
+    summary_file = os.path.join(base_save_path, 'experiment_summary.json')
+    with open(summary_file, 'w') as f:
+        json.dump({
+            "all_chosen_ratings": all_chosen_ratings,
+            "all_chosen_image_paths": all_chosen_image_paths,
+            "history_best_ratings": history_best_ratings
+        }, f, indent=4)
     
-    # 计算总体准确率
-    if frame_results:
-        total_frames = len(frame_results)
-        correct_frames = sum(1 for r in frame_results if r['correct'])
-        accuracy = correct_frames / total_frames
-        
-        # 按情绪类别统计
-        amu_frames = sum(1 for r in frame_results if r['true_label'] == 1)
-        dis_frames = total_frames - amu_frames
-        
-        amu_correct = sum(1 for r in frame_results if r['true_label'] == 1 and r['correct'])
-        dis_correct = sum(1 for r in frame_results if r['true_label'] == 0 and r['correct'])
-        
-        amu_accuracy = amu_correct / amu_frames if amu_frames > 0 else 0
-        dis_accuracy = dis_correct / dis_frames if dis_frames > 0 else 0
-        
-        print(f"总样本数: {total_frames}")
-        print(f"总体准确率: {accuracy:.2f} ({correct_frames}/{total_frames})")
-        print(f"Amu情绪准确率: {amu_accuracy:.2f} ({amu_correct}/{amu_frames})")
-        print(f"Dis情绪准确率: {dis_accuracy:.2f} ({dis_correct}/{dis_frames})")
-        
+    # 生成评分历史图表
+    plt.figure(figsize=(10, 6))
+    plt.plot(history_best_ratings, marker='o')
+    plt.title('评分历史变化')
+    plt.xlabel('迭代轮次')
+    plt.ylabel('最佳评分')
+    plt.grid(True)
+    plt.savefig(os.path.join(base_save_path, 'rating_history.png'))
+    
+    print("实验完成")
     socketio.emit('experiment_finished')
-        
+    
     return jsonify({
-        "message": f"Files uploaded successfully"
+        "message": "实验成功完成",
+        "best_rating": history_best_ratings[-1] if history_best_ratings else 0,
+        "best_image": os.path.basename(all_chosen_image_paths[-1]) if all_chosen_image_paths else ""
     }), 200
         
     
+@app.route('/rating_upload', methods=['POST'])
+def receive_ratings():
+    global ratings
+    global rating_received_event
     
+    data = request.get_json()
+    ratings = data.get('ratings', [])
+    if len(ratings) != 10:
+        return jsonify({"message": "评分数量不正确"}), 400
     
-@app.route('/instant_eeg_upload', methods=['POST'])
-def process_instant_eeg():
-    if 'files' not in request.files:
-        return jsonify({"message": "No file part"}), 400
-
-    files = request.files.getlist('files')
-    if not files:
-        return jsonify({"message": "No selected files"}), 400
-
-    for file in files:
-        if file.filename == '':
-            return jsonify({"message": "No selected file"}), 400
-        if file:
-            filename = file.filename
-            save_path = os.path.join(instant_eeg_path, filename)
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            file.save(save_path)
-
-    return jsonify({
-        "message": f"Files uploaded successfully"
-    }), 200
+    save_path = os.path.join(instant_eeg_path, 'ratings.json')
+    with open(save_path, 'w') as f:
+        json.dump(ratings, f, indent=4)
+    
+    # 设置事件，通知等待的函数继续执行
+    rating_received_event.set()
+    
+    return jsonify({"message": "评分接收成功"}), 200
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
 
+
+def send_images_and_collect_ratings(image_paths, save_path):
+    global rating_received_event
+    global ratings
+    
+    # 重置事件状态
+    rating_received_event.clear()    
+    
+    print("发送图片到客户端")
+    images = []
+    for image_path in image_paths:
+        with open(image_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            images.append(encoded_string)
+    socketio.emit('image_for_rating', {'images': images})
+    
+    # 等待评分接收事件
+    print("等待客户端评分...")
+    rating_received_event.wait(timeout=300)  # 设置超时时间(秒)，避免无限等待
+    
+    if not rating_received_event.is_set():
+        print("警告: 等待评分超时")
+        return False
+    
+    print("已收到评分，继续执行")
+    
+    # 保存评分到指定路径
+    ratings_file = os.path.join(save_path, 'ratings.json')
+    with open(ratings_file, 'w') as f:
+        json.dump(ratings, f, indent=4)    
+    
+    return True    
 
 def collect_and_save_eeg_for_all_images(image_paths, save_path, label_list):
     print("Sending images to client")

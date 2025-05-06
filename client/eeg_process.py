@@ -166,7 +166,7 @@ def real_time_processing(original_data_path, preprocess_data_path, filters, appl
     np.save(preprocess_data_path, filtered_data)
     return filtered_data
 
-def create_last_event_npy(data, count=1):
+def create_last_event_npy(data, count=1, fs=250, event_length=5):
     """
     从数据中提取最后count个事件的数据
     适配5秒图片呈现+1秒空白的实验设计
@@ -178,8 +178,6 @@ def create_last_event_npy(data, count=1):
     返回:
     last_events_data: 最后count个事件的数据数组列表
     """
-    apply_baseline = True  # 是否应用基线校正
-
     # 提取事件通道
     event = data[64, :]  # 第65行存储event信息
     event_indices = np.where(event > 0)[0]  # 找到所有非零的event索引
@@ -197,12 +195,12 @@ def create_last_event_npy(data, count=1):
     
     for idx, event_idx in enumerate(last_events):
         # 检查是否有足够的前导数据作为基线
-        if event_idx < 250:
+        if event_idx < fs:
             print(f"警告: 事件 {len(event_indices) - count + idx + 1} 没有足够的前导数据用于基线校正")
             continue
             
         # 新的设计: 5秒图片 = 1250个样本点 (采样率250Hz)
-        if event_idx + 1250 <= data.shape[1]:  # 确保索引不越界（需要5秒的刺激数据）
+        if event_idx + fs*event_length <= data.shape[1]:  # 确保索引不越界（需要5秒的刺激数据）
             # 提取基线期间(事件前250ms)和事件期间的数据
             baseline_start = event_idx - 250
             baseline_end = event_idx

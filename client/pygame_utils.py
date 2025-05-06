@@ -110,17 +110,17 @@ class Controller:
 
     def run(self):
         self.model.start_data_collection()
-        # running = True
-        # while running:
-        #     for event in pg.event.get():
-        #         if event.type == pg.QUIT:
-        #             running = False
-        #         elif event.type == pg.KEYDOWN:
-        #             if event.key == pg.K_ESCAPE:
-        #                 running = False
+        running = True
+        while running:
+            for event in pg.event.get():
+                if event.type == pg.QUIT:
+                    running = False
+                elif event.type == pg.KEYDOWN:
+                    if event.key == pg.K_ESCAPE:
+                        running = False
 
-            # # Add a small sleep to prevent high CPU usage
-            # time.sleep(0.01)
+            # Add a small sleep to prevent high CPU usage
+            time.sleep(0.01)
 
 
     def start_experiment_1(self, image_set_path, pre_eeg_path):
@@ -193,7 +193,53 @@ class Controller:
         self.model.save_labels(labels, pre_eeg_path)
         self.view.display_text('Data saved')
 
-    def collect_data(self, image_path):
+    def start_rating(self, instant_image_path):
+        print("Start rating")
+        self.view.display_text('Ready to start rating')
+        
+        # 获取所有图片文件
+        all_image_files = [f for f in os.listdir(instant_image_path) if f.endswith('.jpg') or f.endswith('.png')]
+        
+        # 随机打乱顺序
+        random.shuffle(all_image_files)
+        
+        # 初始化标签列表
+        labels = []
+        
+        time.sleep(0.50)  # 500ms 黑屏
+        
+        ratings = []
+        
+        # 显示图片并采集数据
+        for image_file in all_image_files:
+            label = 'rating'
+            labels.append(label)
+            
+            image_path = os.path.join(instant_image_path, image_file)
+            print(f"显示图片: {image_path}")
+            
+            image = pg.image.load(image_path)
+            self.view.display_image(image)
+            
+            self.view.display_text('Please rate the image')
+            time.sleep(1)
+            score = self.view.rating()
+            if score is None:
+                score = 0.5  # 默认评分
+            ratings.append(score)
+            print(f"评分: {score}")
+        return ratings 
+            
+            
+            
+    
+    def collect_data(self, image_path, num_of_events):
+        """
+        采集数据
+        :param image_path: 图片路径
+        :param num_of_events: 事件数
+        :return: 处理后的事件数据eeg列表
+        """
         self.view.display_text('Ready to start')
         time.sleep(0.5)
 
@@ -207,17 +253,19 @@ class Controller:
         self.view.display_text('Processing...')
 
         data = self.model.thread_data_server.GetBufferData()
-        event_data_list = create_last_event_npy(data, 1)
-        event_data = event_data_list[0]  # 取第一个事件数据
+        event_data_list = create_last_event_npy(data, num_of_events)
+        # event_data = event_data_list[0] # 取最后 num_of_events 个事件数据
         filters = prepare_filters(fs = self.model.sample_rate, new_fs=250)
-        data = real_time_process(event_data, filters)
-        return data
+        processed_event_data_list = []
+        for event_data in event_data_list:
+            data = real_time_process(event_data, filters)
+            processed_event_data_list.append(data)
+        return processed_event_data_list
     
     def rating(self):
         self.view.display_text('Please rate the image')
         time.sleep(1)
         self.view.clear_screen()
-        
 
     def end_experiment(self):
         self.view.display_text('Thank you!')
@@ -229,61 +277,20 @@ class Controller:
 
 
 class View:
-    def __init__(self, monitor_index=0):
+    def __init__(self):
         pg.init()
         
-        # 获取所有显示器的信息
-        monitors_info = []
-        try:
-            if hasattr(pg.display, 'get_desktop_sizes'):
-                # Pygame 2.0.0+ 方法
-                monitors_info = pg.display.get_desktop_sizes()
-            else:
-                # 之前版本使用 SDL 的环境变量获取显示器信息
-                import os
-                try:
-                    from screeninfo import get_monitors
-                    monitors = get_monitors()
-                    for m in monitors:
-                        monitors_info.append((m.width, m.height))
-                except ImportError:
-                    # 如果没有 screeninfo 库，则使用系统默认
-                    display_info = pg.display.Info()
-                    monitors_info = [(display_info.current_w, display_info.current_h)]
-        except:
-            # 如果无法获取多显示器信息，使用默认值
-            display_info = pg.display.Info()
-            monitors_info = [(display_info.current_w, display_info.current_h)]
-        
-        print(f"检测到 {len(monitors_info)} 个显示器")
-        for i, (width, height) in enumerate(monitors_info):
-            print(f"显示器 {i}: {width}x{height}")
-        
-        # 确保 monitor_index 在有效范围内
-        if monitor_index < 0 or monitor_index >= len(monitors_info):
-            print(f"警告: 显示器索引 {monitor_index} 无效，使用默认显示器 0")
-            monitor_index = 0
-        
-        # 获取指定显示器的尺寸
-        screen_width, screen_height = monitors_info[monitor_index]
-        
-        # 计算显示器位置（假设显示器水平排列）
-        position_x = sum(w for w, _ in monitors_info[:monitor_index])
-        
-        # 设置窗口环境变量（告诉SDL在哪个显示器上创建窗口）
-        os.environ['SDL_VIDEO_WINDOW_POS'] = f"{position_x},{0}"
-        
-        # 创建全屏窗口
-        self.screen = pg.display.set_mode((screen_width, screen_height), pg.FULLSCREEN)
+        # 创建固定尺寸的窗口 1920x1080
+        screen_width, screen_height = 1920, 1080
+        self.screen = pg.display.set_mode((screen_width, screen_height))
         pg.display.set_caption('Closed Loop Experiment')
         self.font = pg.font.Font(None, 40)
         
-        # 存储显示器信息
-        self.monitor_index = monitor_index
+        # 存储窗口信息
         self.screen_width = screen_width
         self.screen_height = screen_height
-        print(f"已在显示器 {monitor_index} ({screen_width}x{screen_height}) 创建全屏窗口")
-
+        print(f"已创建 {screen_width}x{screen_height} 窗口")
+        
     def display_text(self, text):
         self.screen.fill((0, 0, 0))
         text_surface = self.font.render(text, True, (255, 255, 255))
@@ -378,11 +385,11 @@ class View:
                                 active = False  # 退出循环
                             else:
                                 # 显示错误提示
-                                self.display_text("请输入0-1之间的值！")
+                                self.display_text("Please enter a number between 0 and 1!")
                                 time.sleep(1)
                         except ValueError:
                             # 显示错误提示
-                            self.display_text("请输入有效的小数！")
+                            self.display_text("Invalid input! Please enter a number.")
                             time.sleep(1)
                     elif event.key == pg.K_BACKSPACE:
                         # 删除最后一个字符
@@ -405,7 +412,7 @@ class View:
             self.screen.fill((0, 0, 0))
             
             # 绘制说明文本
-            instruction_text = self.font.render("请输入是否高兴的评分 (0-1之间的两位小数):", True, (255, 255, 255))
+            instruction_text = self.font.render("Input the rating of the image:(0.00-1.00)", True, (255, 255, 255))
             self.screen.blit(instruction_text, (screen_width//2 - instruction_text.get_width()//2, 
                                                 screen_height//2 - 80))
             
@@ -417,7 +424,7 @@ class View:
             self.screen.blit(text_surface, (input_rect.x + 10, input_rect.y + 10))
             
             # 显示用法提示
-            hint_text = self.font.render("按回车确认, ESC取消", True, (200, 200, 200))
+            hint_text = self.font.render("Enter or ESC", True, (200, 200, 200))
             self.screen.blit(hint_text, (screen_width//2 - hint_text.get_width()//2, 
                                             screen_height//2 + 80))
             
@@ -429,16 +436,3 @@ class View:
         
         # 返回有效的评分结果
         return float(input_text)
-    
-# 适用于离线实验采集
-if __name__ == '__main__':
-    pre_eeg_path = f'client\pre_eeg'
-    instant_eeg_path = f'client\instant_eeg'
-    instant_image_path = f'client\instant_image'
-    image_set_path = f'stimuli_SX' 
-    
-    model = Model()
-    view = View()
-    controller = Controller(model, view)
-
-    controller.start_experiment_1(image_set_path, pre_eeg_path)
