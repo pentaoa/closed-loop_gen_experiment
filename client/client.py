@@ -13,7 +13,7 @@ from client_utils import *
 # 定义常量
 subject_id = 3
 fs = 250
-experiment_stage = 1
+experiment_stage = 2
 # pre_eeg_path = os.path.join('client', 'pre_eeg')
 pre_eeg_path = f'client/data/sub{subject_id}/pre_eeg'
 instant_eeg_path = 'server/data/instant_eeg'
@@ -300,22 +300,15 @@ def run_experiments_in_thread():
         print("Experiment 2 started in a separate thread")
 
 if __name__ == '__main__':
-    # 主线程保持 Pygame 事件循环
-    running = True
-    while running:
-        for event in pg.event.get():
-            if event.type == pg.QUIT:
-                running = False
-            elif event.type == pg.KEYDOWN:
-                if event.key == pg.K_ESCAPE:
-                    running = False
-        
-        pg.display.update()  # 更新显示
-        time.sleep(0.01)  # 短暂休眠减少 CPU 使用
     
-    # Give the controller time to initialize
-    time.sleep(3)
-    
+
+    # Start the controller
+    controller_thread = threading.Thread(target=controller.run)
+    controller_thread.daemon = True
+    controller_thread.start()
+
+    time.sleep(5)
+
     # Run the appropriate experiment
     run_experiments_in_thread()
     

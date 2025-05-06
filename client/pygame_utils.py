@@ -110,17 +110,17 @@ class Controller:
 
     def run(self):
         self.model.start_data_collection()
-        running = True
-        while running:
-            for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    running = False
-                elif event.type == pg.KEYDOWN:
-                    if event.key == pg.K_ESCAPE:
-                        running = False
+        # running = True
+        # while running:
+        #     for event in pg.event.get():
+        #         if event.type == pg.QUIT:
+        #             running = False
+        #         elif event.type == pg.KEYDOWN:
+        #             if event.key == pg.K_ESCAPE:
+        #                 running = False
 
-            # Add a small sleep to prevent high CPU usage
-            time.sleep(0.01)
+            # # Add a small sleep to prevent high CPU usage
+            # time.sleep(0.01)
 
 
     def start_experiment_1(self, image_set_path, pre_eeg_path):
@@ -352,14 +352,15 @@ class View:
         
     def rating(self):
         """显示评分界面，让用户输入0-1之间的两位小数"""
+        print("正在显示打分")
         # 初始值
         input_text = ""
         active = True
         max_length = 4  # 最多4个字符 (0.xx)
         
         # 计算输入框位置
-        screen_width = self.view.screen.get_width()
-        screen_height = self.view.screen.get_height()
+        screen_width = self.screen.get_width()
+        screen_height = self.screen.get_height()
         input_rect = pg.Rect(screen_width//2 - 100, screen_height//2, 200, 50)
         
         # 进入输入循环
@@ -377,11 +378,11 @@ class View:
                                 active = False  # 退出循环
                             else:
                                 # 显示错误提示
-                                self.view.display_text("请输入0-1之间的值！")
+                                self.display_text("请输入0-1之间的值！")
                                 time.sleep(1)
                         except ValueError:
                             # 显示错误提示
-                            self.view.display_text("请输入有效的小数！")
+                            self.display_text("请输入有效的小数！")
                             time.sleep(1)
                     elif event.key == pg.K_BACKSPACE:
                         # 删除最后一个字符
@@ -401,23 +402,23 @@ class View:
                             input_text += event.unicode
             
             # 清屏
-            self.view.screen.fill((0, 0, 0))
+            self.screen.fill((0, 0, 0))
             
             # 绘制说明文本
-            instruction_text = self.view.font.render("请输入是否高兴的评分 (0-1之间的两位小数):", True, (255, 255, 255))
-            self.view.screen.blit(instruction_text, (screen_width//2 - instruction_text.get_width()//2, 
+            instruction_text = self.font.render("请输入是否高兴的评分 (0-1之间的两位小数):", True, (255, 255, 255))
+            self.screen.blit(instruction_text, (screen_width//2 - instruction_text.get_width()//2, 
                                                 screen_height//2 - 80))
             
             # 绘制输入框
-            pg.draw.rect(self.view.screen, (255, 255, 255), input_rect, 2)
+            pg.draw.rect(self.screen, (255, 255, 255), input_rect, 2)
             
             # 显示当前输入的文本
-            text_surface = self.view.font.render(input_text, True, (255, 255, 255))
-            self.view.screen.blit(text_surface, (input_rect.x + 10, input_rect.y + 10))
+            text_surface = self.font.render(input_text, True, (255, 255, 255))
+            self.screen.blit(text_surface, (input_rect.x + 10, input_rect.y + 10))
             
             # 显示用法提示
-            hint_text = self.view.font.render("按回车确认, ESC取消", True, (200, 200, 200))
-            self.view.screen.blit(hint_text, (screen_width//2 - hint_text.get_width()//2, 
+            hint_text = self.font.render("按回车确认, ESC取消", True, (200, 200, 200))
+            self.screen.blit(hint_text, (screen_width//2 - hint_text.get_width()//2, 
                                             screen_height//2 + 80))
             
             # 更新显示
