@@ -229,17 +229,60 @@ class Controller:
 
 
 class View:
-    def __init__(self):
+    def __init__(self, monitor_index=0):
         pg.init()
         
-        # 显示器信息
-        display_info = pg.display.Info()
-        screen_width, screen_height = display_info.current_w, display_info.current_h
+        # 获取所有显示器的信息
+        monitors_info = []
+        try:
+            if hasattr(pg.display, 'get_desktop_sizes'):
+                # Pygame 2.0.0+ 方法
+                monitors_info = pg.display.get_desktop_sizes()
+            else:
+                # 之前版本使用 SDL 的环境变量获取显示器信息
+                import os
+                try:
+                    from screeninfo import get_monitors
+                    monitors = get_monitors()
+                    for m in monitors:
+                        monitors_info.append((m.width, m.height))
+                except ImportError:
+                    # 如果没有 screeninfo 库，则使用系统默认
+                    display_info = pg.display.Info()
+                    monitors_info = [(display_info.current_w, display_info.current_h)]
+        except:
+            # 如果无法获取多显示器信息，使用默认值
+            display_info = pg.display.Info()
+            monitors_info = [(display_info.current_w, display_info.current_h)]
         
-        # 全屏模式
+        print(f"检测到 {len(monitors_info)} 个显示器")
+        for i, (width, height) in enumerate(monitors_info):
+            print(f"显示器 {i}: {width}x{height}")
+        
+        # 确保 monitor_index 在有效范围内
+        if monitor_index < 0 or monitor_index >= len(monitors_info):
+            print(f"警告: 显示器索引 {monitor_index} 无效，使用默认显示器 0")
+            monitor_index = 0
+        
+        # 获取指定显示器的尺寸
+        screen_width, screen_height = monitors_info[monitor_index]
+        
+        # 计算显示器位置（假设显示器水平排列）
+        position_x = sum(w for w, _ in monitors_info[:monitor_index])
+        
+        # 设置窗口环境变量（告诉SDL在哪个显示器上创建窗口）
+        os.environ['SDL_VIDEO_WINDOW_POS'] = f"{position_x},{0}"
+        
+        # 创建全屏窗口
         self.screen = pg.display.set_mode((screen_width, screen_height), pg.FULLSCREEN)
         pg.display.set_caption('Closed Loop Experiment')
         self.font = pg.font.Font(None, 40)
+        
+        # 存储显示器信息
+        self.monitor_index = monitor_index
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        print(f"已在显示器 {monitor_index} ({screen_width}x{screen_height}) 创建全屏窗口")
 
     def display_text(self, text):
         self.screen.fill((0, 0, 0))
