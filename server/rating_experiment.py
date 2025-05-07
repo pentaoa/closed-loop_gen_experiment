@@ -39,6 +39,7 @@ image_set_path = 'stimuli_SX'
 pre_eeg_path = f'server/data/sub{subject_id}/pre_eeg' # TODO: 验证
 instant_eeg_path = 'server/data/instant_eeg'
 target_image_path = 'stimuli_SX/Dis-07.jpg'
+target_eeg_path = 'DIRTI Database/1139_body products.jpg'
 
 
 # 全局变量
@@ -65,22 +66,22 @@ def experiment_2():
     print("图片 rating 迭代实验")
     print("#" * 50 + "\n")
     
-    base_seed = 10000 * subject_id
+    seed = 10000 * time.time() % 10000
     base_save_path = f'server/data/sub{subject_id}/rating_experiment'
     os.makedirs(base_save_path, exist_ok=True)
     
     # 获取所有图片    
-    all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
-    
-    amu_images = [f for f in all_image_files if f.startswith('Amu-')]
-    dis_images = [f for f in all_image_files if f.startswith('Dis-')]
-    test_images = amu_images + dis_images
-    print(f"找到 {len(amu_images)} 张 Amu 图片")
-    print(f"找到 {len(dis_images)} 张 Dis 图片")
+    # all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+    test_images = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+    # amu_images = [f for f in all_image_files if f.startswith('Amu-')]
+    # dis_images = [f for f in all_image_files if f.startswith('Dis-')]
+    # test_images = amu_images + dis_images
+    # print(f"找到 {len(amu_images)} 张 Amu 图片")
+    # print(f"找到 {len(dis_images)} 张 Dis 图片")
     print(f"一共 {len(test_images)} 张图片")
     
     # 随机所有照片
-    random.seed(base_seed)
+    random.seed(seed)
     random.shuffle(test_images)
     
     test_images_path = [os.path.join(image_set_path, test_image) for test_image in test_images]

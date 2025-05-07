@@ -7,7 +7,7 @@ import json
 from PIL import Image
 import time
 import pygame as pg
-from client.pygame_utils import Model, View, Controller
+from client.pygame_utils import EEGModel, BaseModel, View, EEGController, BaseController
 import socketio
 import shutil
 
@@ -18,7 +18,7 @@ image_set_path = f'stimuli_SX'
     
 
 selected_channels = []
-target_image = None
+use_eeg = False
 
 url = 'http://10.20.37.38:45565'
 
@@ -140,9 +140,15 @@ def experiment_finished(data):
 
 if __name__ == '__main__':
     global controller
-    model = Model()
-    view = View()
-    controller = Controller(model, view)
+    
+    if (use_eeg):
+        model = EEGModel()
+        view = View()
+        controller = EEGController(model, view)
+    else:
+        model = BaseModel()
+        view = View()
+        controller = BaseController(model, view)
 
 
     sio.connect(url)

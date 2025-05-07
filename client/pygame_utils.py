@@ -9,7 +9,11 @@ from neuracle_api import DataServerThread
 from triggerBox import TriggerBox, PackageSensorPara
 from eeg_process import *
 
-class Model:
+class BaseModel:
+    pass
+        
+
+class EEGModel:
     def __init__(self):
         self.sample_rate = 250
         self.t_buffer = 1000
@@ -101,13 +105,151 @@ class Model:
     def set_phase(self, phase):
         self.current_phase = phase
 
-
-class Controller:
+class BaseController:
     def __init__(self, model, view):
         self.model = model
         self.view = view
+        self.running = True
         
+    def process_events(self):
+        """处理所有排队的事件，提高响应性能"""
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                self.running = False
+            # 将键盘事件传递给视图进行处理
+            if hasattr(self.view, 'handle_event'):
+                self.view.handle_event(event)
+        return self.running
+    
+    def run(self):
+        self.running = True
+        clock = pg.time.Clock()
+        
+        while self.running:
+            self.running = self.process_events()
+            
+            clock.tick(60)  # 控制帧率
 
+    def start_experiment_1(self, image_set_path, pre_eeg_path):
+        print("Start experiment 1")
+        self.view.display_text('Ready to start experiment 1')
+        pg.time.delay(5) 
+        
+        # 获取所有图片文件
+        all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+        
+        # 按情绪类别分组图片
+        amu_images = [f for f in all_image_files if f.startswith('Amu-')]
+        dis_images = [f for f in all_image_files if f.startswith('Dis-')]
+        
+        print(f"找到 {len(amu_images)} 张 Amu 图片")
+        print(f"找到 {len(dis_images)} 张 Dis 图片")
+        
+        # 初始化标签列表
+        labels = []
+        pg.event.clear()  # 清除事件队列
+        pg.time.delay(5)  
+        
+        # 先展示 Amu 图片 (5次)
+        for repeat in range(5):
+            print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
+            random.shuffle(amu_images)  # 每轮随机打乱顺序
+            
+            for idx, image_file in enumerate(amu_images):
+                label = 'Amu'
+                labels.append(label)
+                
+                image_path = os.path.join(image_set_path, image_file)
+                print(f"显示图片: {image_path}")
+                
+                image = pg.image.load(image_path)
+                self.view.display_image(image)
+                
+                pg.time.delay(5000)
+                self.view.clear_screen()
+                pg.time.delay(1000)
+        
+        # 再展示 Dis 图片 (5次)
+        for repeat in range(5):
+            print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
+            random.shuffle(dis_images)  # 每轮随机打乱顺序
+            
+            for idx, image_file in enumerate(dis_images):
+                label = 'Dis'
+                labels.append(label)
+                
+                image_path = os.path.join(image_set_path, image_file)
+                print(f"显示图片: {image_path}")
+                
+                image = pg.image.load(image_path)
+                self.view.display_image(image)
+                
+                pg.time.delay(5000)
+                self.view.clear_screen()
+                pg.time.delay(1000)
+
+        # 采集结束，保存数据
+        self.view.display_text('Experiment 1 finished')
+
+    def start_rating(self, instant_image_path):
+        print("Start rating")
+        self.view.display_text('Ready to start rating')
+        
+        # 获取所有图片文件
+        all_image_files = [f for f in os.listdir(instant_image_path) if f.endswith('.jpg') or f.endswith('.png')]
+        
+        # 随机打乱顺序
+        random.shuffle(all_image_files)
+        
+        # 初始化标签列表
+        labels = []
+        ratings = []
+        
+        # 显示图片并采集数据
+        for image_file in all_image_files:
+            label = 'rating'
+            labels.append(label)
+            
+            image_path = os.path.join(instant_image_path, image_file)
+            print(f"显示图片: {image_path}")
+            
+            image = pg.image.load(image_path)
+            self.view.display_image(image)
+            
+            self.view.display_text('Please rate the image')
+            time.sleep(1)
+            score = self.view.rating()
+            if score is None:
+                score = 0.5  # 默认评分
+            ratings.append(score)
+            print(f"评分: {score}")
+        return ratings 
+
+    def end_experiment(self):
+        self.view.display_text('Thank you!')
+        time.sleep(3)
+        self.model.stop_data_collection()
+        pg.quit()
+        gc.collect()
+        quit()
+
+class EEGController:
+    def __init__(self, model, view):
+        self.model = model
+        self.view = view
+        self.running = True
+        
+    def process_events(self):
+        """处理所有排队的事件，提高响应性能"""
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                self.running = False
+            # 将键盘事件传递给视图进行处理
+            if hasattr(self.view, 'handle_event'):
+                self.view.handle_event(event)
+        
+        return self.running
+    
     def run(self):
         self.model.start_data_collection()
         running = True
@@ -115,9 +257,6 @@ class Controller:
             for event in pg.event.get():
                 if event.type == pg.QUIT:
                     running = False
-                elif event.type == pg.KEYDOWN:
-                    if event.key == pg.K_ESCAPE:
-                        running = False
 
             # Add a small sleep to prevent high CPU usage
             time.sleep(0.01)
@@ -289,7 +428,44 @@ class View:
         # 存储窗口信息
         self.screen_width = screen_width
         self.screen_height = screen_height
+        
+        # 对于输入相关的状态变量
+        self.input_active = False
+        self.input_text = ""
+        self.input_rect = pg.Rect(screen_width//2 - 100, screen_height//2, 200, 50)
+        self.input_result = None
+        
         print(f"已创建 {screen_width}x{screen_height} 窗口")
+        
+    def handle_event(self, event):
+        """处理事件，提高键盘响应性能"""
+        if not self.input_active:
+            return
+            
+        if event.type == pg.KEYDOWN:
+            if event.key == pg.K_RETURN:
+                try:
+                    score = float(self.input_text)
+                    if 0 <= score <= 1:
+                        self.input_result = score
+                        self.input_active = False
+                except ValueError:
+                    pass
+            elif event.key == pg.K_BACKSPACE:
+                self.input_text = self.input_text[:-1]
+            elif event.key == pg.K_ESCAPE:
+                self.input_active = False
+                self.input_result = None
+            elif event.unicode in '0123456789.' and len(self.input_text) < 4:
+                # 确保只有一个小数点和小数点后最多两位
+                if event.unicode == '.' and '.' in self.input_text:
+                    return
+                if '.' in self.input_text and len(self.input_text.split('.')[1]) >= 2 and event.unicode != '.':
+                    return
+                self.input_text += event.unicode
+                
+            # 实时更新显示
+            self.update_rating_display()
         
     def display_text(self, text):
         self.screen.fill((0, 0, 0))
@@ -357,82 +533,78 @@ class View:
 
         pg.display.flip()  # 更新屏幕显示
         
+    def handle_event(self, event):
+        """处理事件，提高键盘响应性能"""
+        if not self.input_active:
+            return
+            
+        if event.type == pg.KEYDOWN:
+            if event.key == pg.K_RETURN:
+                try:
+                    score = float(self.input_text)
+                    if 0 <= score <= 1:
+                        self.input_result = score
+                        self.input_active = False
+                except ValueError:
+                    pass
+            elif event.key == pg.K_BACKSPACE:
+                self.input_text = self.input_text[:-1]
+            elif event.key == pg.K_ESCAPE:
+                self.input_active = False
+                self.input_result = None
+            elif event.unicode in '0123456789.' and len(self.input_text) < 4:
+                # 确保只有一个小数点和小数点后最多两位
+                if event.unicode == '.' and '.' in self.input_text:
+                    return
+                if '.' in self.input_text and len(self.input_text.split('.')[1]) >= 2 and event.unicode != '.':
+                    return
+                self.input_text += event.unicode
+                
+            # 实时更新显示
+            self.update_rating_display()
+            
+    def update_rating_display(self):
+        """更新评分界面显示"""
+        if not self.input_active:
+            return
+            
+        # 清屏
+        self.screen.fill((0, 0, 0))
+        
+        # 绘制说明文本
+        instruction_text = self.font.render("Input the rating of the image:(0.00-1.00)", True, (255, 255, 255))
+        self.screen.blit(instruction_text, (self.screen_width//2 - instruction_text.get_width()//2, 
+                                            self.screen_height//2 - 80))
+        
+        # 绘制输入框
+        pg.draw.rect(self.screen, (255, 255, 255), self.input_rect, 2)
+        
+        # 显示当前输入的文本
+        text_surface = self.font.render(self.input_text, True, (255, 255, 255))
+        self.screen.blit(text_surface, (self.input_rect.x + 10, self.input_rect.y + 10))
+        
+        # 显示用法提示
+        hint_text = self.font.render("Enter or ESC", True, (200, 200, 200))
+        self.screen.blit(hint_text, (self.screen_width//2 - hint_text.get_width()//2, 
+                                        self.screen_height//2 + 80))
+        
+        # 更新显示
+        pg.display.flip()
+        
     def rating(self):
         """显示评分界面，让用户输入0-1之间的两位小数"""
         print("正在显示打分")
-        # 初始值
-        input_text = ""
-        active = True
-        max_length = 4  # 最多4个字符 (0.xx)
         
-        # 计算输入框位置
-        screen_width = self.screen.get_width()
-        screen_height = self.screen.get_height()
-        input_rect = pg.Rect(screen_width//2 - 100, screen_height//2, 200, 50)
+        self.input_active = True
+        self.input_text = ""
+        self.input_result = None
         
-        # 进入输入循环
-        while active:
-            # 处理所有事件
-            for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    return None
-                elif event.type == pg.KEYDOWN:
-                    if event.key == pg.K_RETURN:
-                        # 确认输入，检查格式
-                        try:
-                            score = float(input_text)
-                            if 0 <= score <= 1:
-                                active = False  # 退出循环
-                            else:
-                                # 显示错误提示
-                                self.display_text("Please enter a number between 0 and 1!")
-                                time.sleep(1)
-                        except ValueError:
-                            # 显示错误提示
-                            self.display_text("Invalid input! Please enter a number.")
-                            time.sleep(1)
-                    elif event.key == pg.K_BACKSPACE:
-                        # 删除最后一个字符
-                        input_text = input_text[:-1]
-                    elif event.key == pg.K_ESCAPE:
-                        # ESC键退出
-                        return None
-                    else:
-                        # 只接受数字和小数点
-                        if event.unicode in '0123456789.' and len(input_text) < max_length:
-                            # 确保只有一个小数点
-                            if event.unicode == '.' and '.' in input_text:
-                                continue
-                            # 确保小数点后最多两位
-                            if '.' in input_text and len(input_text.split('.')[1]) >= 2 and event.unicode != '.':
-                                continue
-                            input_text += event.unicode
-            
-            # 清屏
-            self.screen.fill((0, 0, 0))
-            
-            # 绘制说明文本
-            instruction_text = self.font.render("Input the rating of the image:(0.00-1.00)", True, (255, 255, 255))
-            self.screen.blit(instruction_text, (screen_width//2 - instruction_text.get_width()//2, 
-                                                screen_height//2 - 80))
-            
-            # 绘制输入框
-            pg.draw.rect(self.screen, (255, 255, 255), input_rect, 2)
-            
-            # 显示当前输入的文本
-            text_surface = self.font.render(input_text, True, (255, 255, 255))
-            self.screen.blit(text_surface, (input_rect.x + 10, input_rect.y + 10))
-            
-            # 显示用法提示
-            hint_text = self.font.render("Enter or ESC", True, (200, 200, 200))
-            self.screen.blit(hint_text, (screen_width//2 - hint_text.get_width()//2, 
-                                            screen_height//2 + 80))
-            
-            # 更新显示
-            pg.display.flip()
-            
-            # 小延迟减少CPU使用
-            time.sleep(0.01)
+        # 初始显示
+        self.update_rating_display()
         
-        # 返回有效的评分结果
-        return float(input_text)
+        # 等待用户完成输入
+        while self.input_active:
+            pg.time.delay(10)  # 短暂延迟，降低CPU使用率
+            # 事件处理由Controller中的process_events调用handle_event函数完成
+        
+        return self.input_result
