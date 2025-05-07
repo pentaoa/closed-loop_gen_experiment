@@ -3,6 +3,17 @@ import torch
 from typing import TYPE_CHECKING
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import *
 
+import os
+# proxy = 'http://127.0.0.1:7890'
+# proxy = 'http://10.20.38.38:7890'
+proxy = 'http://10.32.204.163:7897'
+os.environ['http_proxy'] = proxy
+os.environ['https_proxy'] = proxy
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+
+
+
 @torch.no_grad()
 @replace_example_docstring(EXAMPLE_DOC_STRING)
 def generate_ip_adapter_embeds(
@@ -459,6 +470,7 @@ def encode_image(image, image_encoder, feature_extractor, num_images_per_prompt=
 class Generator4Embeds:
 
     def __init__(self, guidance_scale, num_inference_steps=1,device='cuda') -> None:
+        print("Loading models...")
         self.num_inference_steps = num_inference_steps
         self.dtype = torch.float16
         self.device = device
@@ -467,9 +479,9 @@ class Generator4Embeds:
         
         # 使用本地缓存路径
         # local_path = "/home/ldy/Workspace/sdxl-turbo/f4b0486b498f84668e828044de1d0c8ba486e05b"
-        local_path = "sdxl-turbo"
-        pipe = DiffusionPipeline.from_pretrained(local_path, torch_dtype=torch.float16, variant="fp16")
-        # pipe = DiffusionPipeline.from_pretrained("stabilityai/sdxl-turbo", torch_dtype=torch.float16, variant="fp16")
+        model_id = "stabilityai/sdxl-turbo"
+        # local_path = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub", "models--" + model_id.replace("/", "--"))
+        pipe = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16, variant="fp16")
         pipe.to(device)
         pipe.generate_ip_adapter_embeds = generate_ip_adapter_embeds.__get__(pipe)
         # load ip adapter
@@ -480,6 +492,7 @@ class Generator4Embeds:
         # set ip_adapter scale (defauld is 1)
         pipe.set_ip_adapter_scale(1)
         self.pipe = pipe
+        print("Models loaded.")
 
     def generate(self, image_embeds, guidance_scale,text_prompt='', generator=None):
         image_embeds = image_embeds.to(device=self.device, dtype=self.dtype)

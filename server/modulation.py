@@ -8,13 +8,20 @@ from scipy.special import softmax
 import matplotlib.pyplot as plt
 from custom_pipeline import *
 from modulation_utils import *
+# proxy = 'http://10.20.38.38:7890'
+proxy = 'http://10.32.204.163:7897'
+os.environ['http_proxy'] = proxy
+os.environ['https_proxy'] = proxy
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+
 
 device = "cuda:1" if torch.cuda.is_available() else "cpu"
 model_weights_path = '/mnt/dataset0/jiahua/open_clip_pytorch_model.bin'
 fs = 250
-selected_channel_idxes = [3, 4, 5]  # 'O1', 'Oz', 'O2'
+# selected_channel_idxes = [3, 4, 5]  # 'O1', 'Oz', 'O2'
 
-vlmodel, preprocess_train, feature_extractor = load_vlmodel(model_weights_path=model_weights_path, device=device)
+vlmodel, preprocess_train, feature_extractor = load_vlmodel(model_weights_path=None, device=device)
 generator = Generator4Embeds(guidance_scale=2.0, num_inference_steps=4, device=device)
 
 def fusion_image_to_images(image_gt_paths, num_images, save_path, scale):

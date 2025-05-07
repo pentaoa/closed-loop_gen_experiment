@@ -7,14 +7,23 @@ import open_clip
 from mne.time_frequency import psd_array_multitaper
 from sklearn.metrics.pairwise import cosine_similarity
 
+proxy = 'http://10.20.38.38:7890'
+os.environ['http_proxy'] = proxy
+os.environ['https_proxy'] = proxy
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+
+
 def load_vlmodel(model_name='ViT-H-14', model_weights_path=None, precision='fp32', device=None):
+    print(f"Loading model {model_name}...")
     vlmodel, preprocess_train, feature_extractor = open_clip.create_model_and_transforms(
-        model_name=model_name, pretrained=None, precision=precision, device=device
+        model_name=model_name, pretrained='laion2b_s32b_b79k', precision=precision, device=device
     )
     if model_weights_path:
         model_state_dict = torch.load(model_weights_path, map_location=device, weights_only=True)
         vlmodel.load_state_dict(model_state_dict)
     vlmodel.eval()
+    print(f"Model {model_name} loaded successfully.")
     return vlmodel, preprocess_train, feature_extractor
 
 def get_image_pool(image_set_path):
