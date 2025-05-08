@@ -77,6 +77,11 @@ class EEGModel:
         data = real_time_process(event_data, filters)
         np.save(os.path.join(instant_eeg_path, f'{time.strftime("%Y%m%d-%H%M%S")}.npy'), data)
         print("Instant EEG data saved!")
+        
+    def save_eeg(self, instant_eeg_path, file_name):
+        data = self.thread_data_server.GetBufferData()
+        np.save(os.path.join(instant_eeg_path, f'{file_name}.npy'), data)
+        print("Instant EEG data saved!")
 
     def get_event_data(self):
         data = self.thread_data_server.GetBufferData()
@@ -232,7 +237,7 @@ class BaseController:
                 score = 0.5  # 默认评分
             ratings.append(score)
             print(f"评分: {score}")
-        return ratings 
+        return ratings
 
     def end_experiment(self):
         self.view.display_text('Thank you!')
@@ -340,35 +345,30 @@ class EEGController:
         self.model.save_pre_eeg(pre_eeg_path)
         self.model.save_labels(labels, pre_eeg_path)
         self.view.display_text('Data saved')
-
-    def start_rating(self, instant_image_path):
-        print("Start rating")
+            
+    def start_collect_and_rating(self, instant_image_path, instant_eeg_path):
+        print("Start rating and collecting EEG data")
         self.view.display_text('Ready to start rating')
         
         # 获取所有图片文件
         all_image_files = [f for f in os.listdir(instant_image_path) if f.endswith('.jpg') or f.endswith('.png')]
         
-        # 随机打乱顺序
-        random.shuffle(all_image_files)
-        
-        # 初始化标签列表
-        labels = []
-        
-        time.sleep(0.50)  # 500ms 黑屏
-        
+        count = 0
         ratings = []
         
         # 显示图片并采集数据
         for image_file in all_image_files:
-            label = 'rating'
-            labels.append(label)
-            
+            count+= 1
             image_path = os.path.join(instant_image_path, image_file)
             print(f"显示图片: {image_path}")
             
             image = pg.image.load(image_path)
             self.view.display_image(image)
-            
+            self.model.trigger(count)
+            start_time = pg.time.get_ticks()
+            while pg.time.get_ticks() - start_time < 5000:
+                self.process_events()
+                pg.time.delay(10)             
             self.view.display_text('Please rate the image')
             time.sleep(1)
             score = self.view.rating()
@@ -376,10 +376,10 @@ class EEGController:
                 score = 0.5  # 默认评分
             ratings.append(score)
             print(f"评分: {score}")
-        return ratings 
             
-            
-            
+        self.view.display_text('wait...')
+        self.model.save_eeg(instant_eeg_path, f'{count}')
+        return ratings
     
     def collect_data(self, image_path, num_of_events):
         """

@@ -17,12 +17,7 @@ from threading import Event
 from modulation_utils import *
 from modulation import fusion_image_to_images
 
-from server_utils import (
-    get_binary_labels,
-    get_selected_channel_idxes,
-    extract_emotion_psd_features,
-    train_emotion_classifier,
-)
+from server_utils import *
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -340,6 +335,8 @@ def send_images_and_collect_ratings(image_paths, save_path):
     ratings_file = os.path.join(save_path, 'ratings.json')
     with open(ratings_file, 'w') as f:
         json.dump(ratings, f, indent=4) 
+        
+    
     
     return True    
 
@@ -379,13 +376,13 @@ def send_images_and_collect_ratings_and_eeg(image_paths, save_dir, label):
         print("警告: 等待评分或EEG数据超时")
         return False
     
-    # 将数据从缓存目录保存到指定目录
-    # 1. 保存评分
+    # 保存评分
     ratings_file = os.path.join(save_dir, f'{label}_ratings.json')
     with open(ratings_file, 'w') as f:
         json.dump(ratings, f, indent=4)
     
-    # 2. 保存EEG数据
+    # 处理EEG数据
+    event_data_list = create_n_event_npy(eeg, 1)
     eeg_file = os.path.join(save_dir, f'{label}_eeg.npy')
     np.save(eeg_file, eeg)
     

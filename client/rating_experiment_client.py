@@ -100,6 +100,48 @@ def image_for_rating(data):
     # 删除 instant_image_path 中的所有文件
     shutil.rmtree(instant_image_path)
     
+@sio.event
+def image_for_rating_and_eeg(data):
+    os.makedirs(instant_image_path, exist_ok=True)
+    os.makedirs(instant_eeg_path, exist_ok=True)
+    os.makedirs(instant_image_path, exist_ok=True)
+    os.makedirs(instant_eeg_path, exist_ok=True)
+    # 删除 instant_image_path 和 instant_eeg_path 中的所有文件
+    shutil.rmtree(instant_image_path)
+    shutil.rmtree(instant_eeg_path)    
+    print('Images received')
+    images = data['images']
+    for idx, encoded_string in enumerate(images):
+        image_data = base64.b64decode(encoded_string)
+        image = Image.open(BytesIO(image_data))
+        # 保存图像到 client/data/instant_image 目录下
+        image_save_path = os.path.join(instant_image_path, f'image_{idx}.png')
+        os.makedirs(instant_image_path, exist_ok=True)
+        image.save(image_save_path)
+        print(f'Image saved to {image_save_path}')
+    
+    print('All images saved')
+
+    # 启动实验
+    ratings = controller.start_collect_and_rating(instant_image_path, instant_eeg_path)
+    
+    # 发送 ratings 到服务器
+    send_url = f'{url}/rating_upload'
+    headers = {'Content-Type': 'application/json'}
+    # 确保 ratings 是一个 JSON 数组
+    data = {
+        'ratings': list(map(float, ratings))  # 确保 ratings 是浮点数列表
+    }
+    response = requests.post(send_url, headers=headers, json=data)  # 使用 json 参数直接传递数据
+    print('Ratings sent to server:', response.status_code, response.text)
+    
+    # 发送 instant_eeg_path 中的所有 npy 文件到服务器
+    send_url = f'{url}/eeg_upload'
+    send_files_to_server(instant_eeg_path, send_url)
+    
+    # 删除 instant_image_path 中的所有文件
+    shutil.rmtree(instant_image_path)
+    
     
 @sio.event
 def image_for_collection(data):
