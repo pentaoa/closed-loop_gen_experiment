@@ -31,13 +31,14 @@ socketio = SocketIO(app)
 subject_id = 1
 fs = 250
 num_loops = 10
+use_eeg = False
 
-ratings = []
 
 # 路径参数
 image_set_path = 'stimuli_SX'
 pre_eeg_path = f'server/data/sub{subject_id}/pre_eeg' # TODO: 验证
 instant_eeg_path = 'server/data/instant_eeg'
+cache_path = 'server/data/cache'
 target_image_path = 'stimuli_SX/Dis-07.jpg'
 target_eeg_path = 'DIRTI Database/1139_body products.jpg'
 
@@ -48,6 +49,10 @@ target_image_path = None
 target_eeg_path = None
 clf = None
 rating_received_event = Event()
+eeg_received_event = Event()
+# 临时存储的数据
+ratings = []
+eeg = None
 
 @socketio.on('connect')
 def handle_connect(auth):
@@ -66,12 +71,12 @@ def experiment_2():
     print("图片 rating 迭代实验")
     print("#" * 50 + "\n")
     
-    seed = 10000 * time.time() % 10000
+    seed = int(10000 * time.time() % 10000)
+    print(f"随机种子: {seed}")
     base_save_path = f'server/data/sub{subject_id}/rating_experiment'
     os.makedirs(base_save_path, exist_ok=True)
     
-    # 获取所有图片    
-    # all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
+    # 获取所有图片
     test_images = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
     # amu_images = [f for f in all_image_files if f.startswith('Amu-')]
     # dis_images = [f for f in all_image_files if f.startswith('Dis-')]
@@ -96,8 +101,9 @@ def experiment_2():
     all_chosen_image_paths = []  # 记录所有选中的图片路径
     history_best_ratings = []    # 记录每一轮的最高评分
     
+    # 固定执行指定轮次，不提前终止
     for i in range(num_loops):
-        print(f"第 {i+1} 轮实验")
+        print(f"第 {i+1}/{num_loops} 轮实验")
         round_save_path = os.path.join(base_save_path, f'loop_{i+1}')
         os.makedirs(round_save_path, exist_ok=True)
         
@@ -132,21 +138,21 @@ def experiment_2():
             chosen_image_paths = [sample_image_paths[idx] for idx in chosen_indices]
             
         else:
-            # 非第一轮，使用之前选择的最佳两张图片
-            chosen_ratings = all_chosen_ratings[-2:]
-            chosen_image_paths = all_chosen_image_paths[-2:]
+            # 非第一轮，使用之前选择的最佳三张图片
+            chosen_ratings = all_chosen_ratings[-3:] if len(all_chosen_ratings) >= 3 else all_chosen_ratings
+            chosen_image_paths = all_chosen_image_paths[-3:] if len(all_chosen_image_paths) >= 3 else all_chosen_image_paths
             
             # 将已选图片加入当前轮次集合
             loop_sample_images.extend(chosen_image_paths)
             loop_ratings.extend(chosen_ratings)
         
-        # 基于当前两张最佳图片融合生成6张新图片
+        # 基于当前最佳图片融合生成新图片
         fusion_dir = os.path.join(round_save_path, 'fusion')
         os.makedirs(fusion_dir, exist_ok=True)
         
         try:
             # 使用融合函数生成新图片
-            fusion_image_to_images(chosen_image_paths, 6, fusion_dir, 256)
+            fusion_image_to_images(chosen_image_paths, 4, fusion_dir, 256)
             
             # 获取融合生成的所有图片路径
             fusion_image_paths = []
@@ -169,13 +175,13 @@ def experiment_2():
         except Exception as e:
             print(f"图片融合失败: {str(e)}")
         
-        # 从未处理的图片池中随机选择2张新图片
+        # 从未处理的图片池中随机选择新图片
         new_samples_dir = os.path.join(round_save_path, 'new_samples')
         os.makedirs(new_samples_dir, exist_ok=True)
         
         available_paths = [path for path in test_images_path if path not in processed_paths]
         if available_paths:
-            new_sample_paths = sorted(random.sample(available_paths, min(2, len(available_paths))))
+            new_sample_paths = sorted(random.sample(available_paths, min(3, len(available_paths))))
             processed_paths.update(new_sample_paths)
             
             # 发送新图片并收集评分
@@ -199,17 +205,7 @@ def experiment_2():
                 "ratings": loop_ratings
             }, f, indent=4)
         
-        # 计算概率分布（可以使用softmax函数）
-        def softmax(x):
-            exp_x = np.exp(x)
-            return exp_x / exp_x.sum()
-        
-        # 计算选择概率
-        selection_probs = softmax(loop_ratings)
-        
-        # 根据概率选择两张图片
-        # 可以直接选择评分最高的，也可以按概率抽样
-        # 这里选择直接取评分最高的两张
+        # 计算选择概率并选择最佳图片
         if loop_ratings:
             chosen_indices = sorted(range(len(loop_ratings)), key=lambda x: loop_ratings[x], reverse=True)[:2]
             chosen_ratings = [loop_ratings[idx] for idx in chosen_indices]
@@ -233,11 +229,6 @@ def experiment_2():
         print(f"当前轮次选择的图片: {[os.path.basename(p) for p in chosen_image_paths]}")
         print(f"当前轮次选择的评分: {chosen_ratings}")
         print(f"历史最佳评分: {history_best_ratings}")
-        
-        # 检查收敛条件
-        if len(history_best_ratings) >= 2 and abs(history_best_ratings[-1] - history_best_ratings[-2]) <= 1e-4:
-            print("评分已收敛，提前结束实验")
-            break
     
     # 保存实验总结数据
     summary_file = os.path.join(base_save_path, 'experiment_summary.json')
@@ -266,6 +257,32 @@ def experiment_2():
         "best_image": os.path.basename(all_chosen_image_paths[-1]) if all_chosen_image_paths else ""
     }), 200
         
+        
+@app.route('/eeg_upload', methods=['POST'])
+def receive_eeg():
+    global eeg
+    global eeg_received_event
+    
+    if 'file' not in request.files:
+        return jsonify({"message": "没有上传文件"}), 400
+    
+    file = request.files['file']
+    
+    # 确保cache目录存在
+    os.makedirs(cache_path, exist_ok=True)
+    
+    # 保存文件到cache目录
+    file_path = os.path.join(cache_path, 'eeg.npy')
+    file.save(file_path)
+    
+    # 读取npy文件到全局变量
+    eeg = np.load(file_path)
+    
+    # 设置事件，通知等待的函数继续执行
+    eeg_received_event.set()
+    
+    return jsonify({"message": "EEG数据接收成功"}), 200
+    
     
 @app.route('/rating_upload', methods=['POST'])
 def receive_ratings():
@@ -274,10 +291,12 @@ def receive_ratings():
     
     data = request.get_json()
     ratings = data.get('ratings', [])
-    if len(ratings) != 10:
-        return jsonify({"message": "评分数量不正确"}), 400
     
-    save_path = os.path.join(instant_eeg_path, 'ratings.json')
+    # 确保cache目录存在
+    os.makedirs(cache_path, exist_ok=True)
+    
+    # 保存评分到cache目录
+    save_path = os.path.join(cache_path, 'ratings.json')
     with open(save_path, 'w') as f:
         json.dump(ratings, f, indent=4)
     
@@ -290,7 +309,7 @@ def receive_ratings():
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
-
+    
 
 def send_images_and_collect_ratings(image_paths, save_path):
     global rating_received_event
@@ -320,61 +339,59 @@ def send_images_and_collect_ratings(image_paths, save_path):
     # 保存评分到指定路径
     ratings_file = os.path.join(save_path, 'ratings.json')
     with open(ratings_file, 'w') as f:
-        json.dump(ratings, f, indent=4)    
+        json.dump(ratings, f, indent=4) 
     
     return True    
 
-def collect_and_save_eeg_for_all_images(image_paths, save_path, label_list):
-    print("Sending images to client")
+def send_images_and_collect_ratings_and_eeg(image_paths, save_dir, label):
+    global ratings 
+    global eeg
+    global eeg_received_event
+    global rating_received_event
+    
+    # 重置事件状态
+    eeg_received_event.clear()
+    rating_received_event.clear()
+    
+    # 确保保存目录存在
+    os.makedirs(save_dir, exist_ok=True)
+    
+    print("发送图片到客户端")
     images = []
     for image_path in image_paths:
         with open(image_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
             images.append(encoded_string)
-    socketio.emit('image_for_collection', {'images': images})
-
-    # 确保目录存在并清空
-    if os.path.exists(instant_eeg_path):
-        shutil.rmtree(instant_eeg_path)
-    os.makedirs(instant_eeg_path, exist_ok=True)
-
-    # 等待EEG文件出现
-    while True:
-        files = [f for f in os.listdir(instant_eeg_path) if f.endswith('.npy')]
-        if files:
+    socketio.emit('image_for_rating_and_eeg', {'images': images, 'label': label})
+    
+    print("等待客户端评分和EEG数据...")
+    timeout = 300  # 设置超时时间(秒)
+    
+    # 等待两个事件
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if eeg_received_event.is_set() and rating_received_event.is_set():
+            print("已接收评分和EEG数据")
             break
-        else:
-            time.sleep(1)
-            print("等待EEG数据文件...")
-
-    # 给文件额外的时间完全写入
-    time.sleep(1)
-    print("Category number:", len(label_list))
-
-    # 遍历 label_list，寻找对应的文件
-    for idx, label in enumerate(label_list):
-        filename = f"{idx+1}.npy"
-        file_path = os.path.join(instant_eeg_path, filename)
-        if os.path.exists(file_path):
-            # 创建正确的目标文件名
-            new_filename = f"{label}_{idx+1}.npy"
-            # 构建完整的目标路径
-            dest_file_path = os.path.join(save_path, new_filename)
-            
-            # 如果目标文件已存在，先删除
-            if os.path.exists(dest_file_path):
-                os.remove(dest_file_path)
-                
-            # 移动文件
-            shutil.move(file_path, dest_file_path)
-            print(f"移动文件到 {dest_file_path}")
-        else:
-            print(f"文件 {filename} 未在 {instant_eeg_path} 中找到")
-
-    # 清理临时目录
-    if os.path.exists(instant_eeg_path):
-        shutil.rmtree(instant_eeg_path)
-        os.makedirs(instant_eeg_path, exist_ok=True)
+        time.sleep(0.5)  # 避免过度占用CPU
+    
+    if not (eeg_received_event.is_set() and rating_received_event.is_set()):
+        print("警告: 等待评分或EEG数据超时")
+        return False
+    
+    # 将数据从缓存目录保存到指定目录
+    # 1. 保存评分
+    ratings_file = os.path.join(save_dir, f'{label}_ratings.json')
+    with open(ratings_file, 'w') as f:
+        json.dump(ratings, f, indent=4)
+    
+    # 2. 保存EEG数据
+    eeg_file = os.path.join(save_dir, f'{label}_eeg.npy')
+    np.save(eeg_file, eeg)
+    
+    print(f"数据已保存到 {save_dir}")
+    return True
+    
 
 
 if __name__ == '__main__':
