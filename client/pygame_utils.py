@@ -165,7 +165,10 @@ class BaseController:
                 image = pg.image.load(image_path)
                 self.view.display_image(image)
                 
-                pg.time.delay(5000)
+                start_time = pg.time.get_ticks()
+                while pg.time.get_ticks() - start_time < 5000:
+                    self.process_events()
+                    pg.time.delay(10) 
                 self.view.clear_screen()
                 pg.time.delay(1000)
         
@@ -184,7 +187,10 @@ class BaseController:
                 image = pg.image.load(image_path)
                 self.view.display_image(image)
                 
-                pg.time.delay(5000)
+                start_time = pg.time.get_ticks()
+                while pg.time.get_ticks() - start_time < 5000:
+                    self.process_events()
+                    pg.time.delay(10) 
                 self.view.clear_screen()
                 pg.time.delay(1000)
 
@@ -215,7 +221,10 @@ class BaseController:
             
             image = pg.image.load(image_path)
             self.view.display_image(image)
-            
+            start_time = pg.time.get_ticks()
+            while pg.time.get_ticks() - start_time < 5000:
+                self.process_events()
+                pg.time.delay(10)             
             self.view.display_text('Please rate the image')
             time.sleep(1)
             score = self.view.rating()
