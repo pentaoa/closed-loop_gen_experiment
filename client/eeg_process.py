@@ -192,6 +192,8 @@ def create_last_event_npy(data, count=1, fs=250, event_length=5):
     
     # 储存处理后的事件数据
     event_data_list = []
+
+    apply_baseline = True  # 是否应用基线校正
     
     for idx, event_idx in enumerate(last_events):
         # 检查是否有足够的前导数据作为基线

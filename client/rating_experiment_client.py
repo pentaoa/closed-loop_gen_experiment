@@ -7,7 +7,7 @@ import json
 from PIL import Image
 import time
 import pygame as pg
-from client.pygame_utils import EEGModel, BaseModel, View, EEGController, BaseController
+from pygame_utils import EEGModel, BaseModel, View, EEGController, BaseController
 import socketio
 import shutil
 
@@ -43,7 +43,6 @@ def connect():
 @sio.event
 def experiment_2_ready():
     view.display_text('Experiment 2 ready, please wait')
-    time.sleep(10)
     # 向服务器发送开始实验的信号
     send_url = f'{url}/experiment_2'
     requests.post(send_url)
