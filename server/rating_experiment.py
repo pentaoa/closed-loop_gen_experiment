@@ -26,7 +26,7 @@ socketio = SocketIO(app)
 subject_id = 1
 fs = 250
 num_loops = 10
-use_eeg = False
+use_eeg = True
 
 
 # 路径参数
@@ -104,6 +104,7 @@ def experiment_2():
         
         loop_sample_images = []  # 当前轮次的图片集合
         loop_ratings = []        # 当前轮次的评分集合
+        loop_labels = []        # 当前轮次的标签集合
         
         if i == 0:
             # 第一轮随机抽取10张图片
@@ -116,9 +117,13 @@ def experiment_2():
             processed_paths.update(sample_image_paths)
             
             # 发送图片并收集评分
-            success = send_images_and_collect_ratings(sample_image_paths, first_ten_dir)
+            if (use_eeg):
+                # 如果使用EEG数据，发送EEG数据和图片
+                success = send_images_and_collect_ratings_and_eeg(sample_image_paths, first_ten_dir, 'first_ten')
+            else:
+                success = send_images_and_collect_ratings(sample_image_paths, first_ten_dir)
             if not success:
-                return jsonify({"message": "评分收集失败"}), 500
+                return jsonify({"message": "评分以及采集失败"}), 500
             
             # 使用用户评分作为相似度
             user_ratings = ratings.copy()
@@ -157,7 +162,12 @@ def experiment_2():
             
             # 发送融合图片并收集评分
             if fusion_image_paths:
-                success = send_images_and_collect_ratings(fusion_image_paths, fusion_dir)
+                if (use_eeg):
+                    # 如果使用EEG数据，发送EEG数据和图片
+                    success = send_images_and_collect_ratings_and_eeg(fusion_image_paths, fusion_dir, 'fusion')
+                else:
+                    # 发送融合图片并收集评分
+                    success = send_images_and_collect_ratings(fusion_image_paths, fusion_dir)
                 if not success:
                     return jsonify({"message": "融合图片评分收集失败"}), 500
                 
@@ -244,7 +254,9 @@ def experiment_2():
     plt.savefig(os.path.join(base_save_path, 'rating_history.png'))
     
     print("实验完成")
-    socketio.emit('experiment_finished')
+    socketio.emit('experiment_finished', {
+        "message": "实验完成"
+    })
     
     return jsonify({
         "message": "实验成功完成",
@@ -255,28 +267,47 @@ def experiment_2():
         
 @app.route('/eeg_upload', methods=['POST'])
 def receive_eeg():
-    global eeg
-    global eeg_received_event
+    try:
+        global eeg
+        global eeg_received_event
+        
+        print("接收EEG数据...")
+        
+        if 'files' not in request.files:
+            print("错误: 请求中没有'files'字段")
+            return jsonify({"message": "没有上传文件，请确保请求包含'file'字段"}), 400
+        
+        file = request.files['files']
+        if file.filename == '':
+            print("错误: 文件名为空")
+            return jsonify({"message": "文件名为空"}), 400
+        
+        # 确保cache目录存在
+        os.makedirs(cache_path, exist_ok=True)
+        
+        # 保存文件到cache目录
+        file_path = os.path.join(cache_path, 'eeg.npy')
+        file.save(file_path)
+        print(f"EEG文件已保存到 {file_path}")
+        
+        try:
+            # 读取npy文件到全局变量
+            eeg = np.load(file_path)
+            print(f"成功加载EEG数据，形状: {eeg.shape}")
+        except Exception as e:
+            print(f"EEG数据加载失败: {str(e)}")
+            return jsonify({"message": f"无法加载EEG数据: {str(e)}"}), 400
+        
+        # 设置事件，通知等待的函数继续执行
+        eeg_received_event.set()
+        
+        return jsonify({"message": "EEG数据接收成功"}), 200
     
-    if 'file' not in request.files:
-        return jsonify({"message": "没有上传文件"}), 400
-    
-    file = request.files['file']
-    
-    # 确保cache目录存在
-    os.makedirs(cache_path, exist_ok=True)
-    
-    # 保存文件到cache目录
-    file_path = os.path.join(cache_path, 'eeg.npy')
-    file.save(file_path)
-    
-    # 读取npy文件到全局变量
-    eeg = np.load(file_path)
-    
-    # 设置事件，通知等待的函数继续执行
-    eeg_received_event.set()
-    
-    return jsonify({"message": "EEG数据接收成功"}), 200
+    except Exception as e:
+        print(f"处理EEG上传时出错: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": f"处理EEG上传时出错: {str(e)}"}), 500
     
     
 @app.route('/rating_upload', methods=['POST'])
@@ -383,9 +414,13 @@ def send_images_and_collect_ratings_and_eeg(image_paths, save_dir, label):
     
     # 处理EEG数据
     event_data_list = create_n_event_npy(eeg, 1)
-    eeg_file = os.path.join(save_dir, f'{label}_eeg.npy')
-    np.save(eeg_file, eeg)
-    
+    filters = prepare_filters(fs, new_fs=250)
+    processed_event_data_list = []
+    for event_data in event_data_list:
+        data = real_time_process(event_data, filters)
+        processed_event_data_list.append(data)
+        eeg_file = os.path.join(save_dir, f'N.npy')
+        np.save(eeg_file, data)
     print(f"数据已保存到 {save_dir}")
     return True
     

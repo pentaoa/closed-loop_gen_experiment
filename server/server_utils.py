@@ -1,14 +1,32 @@
 import os
-import torch
+import random
+import signal # 在 real_time_processing 和 prepare_filters 中使用
+
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.transforms as transforms
+from matplotlib import pyplot as plt
+from mne.time_frequency import psd_array_multitaper
+from PIL import Image as PILImage # 重命名以避免与 wandb.Image 冲突
+from scipy.special import softmax
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier # 添加了 GradientBoostingClassifier
 from sklearn.metrics import classification_report
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import GridSearchCV
-from mne.time_frequency import psd_array_multitaper
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC # 添加了 SVC
+from torchvision import models
+import einops # 在 HeuristicGenerator 类中使用
+from PIL import Image
+
+# 本地应用/库导入
+from model.ATMS_retrieval import get_eeg_features
+from model.pseudo_target_model import PseudoTargetModel
+from model.utils import generate_eeg
+
 
 def get_binary_labels(labels):
     """
@@ -419,3 +437,440 @@ def prepare_filters(fs=250, new_fs=250):
         'bandpass': (b_bp, a_bp),
         'resample_factor': resample_factor
     }
+    
+def compute_embed_similarity(img_feature, all_features):
+    """
+    计算某张图片与所有其他图片的余弦相似度（结果在0-1之间）
+    :param img_feature: 选中图片的特征向量 [D] 或 [1, D]
+    :param all_features: 所有图片的特征向量 [N, D]
+    :return: 余弦相似度 [N] (范围0-1)
+    """
+    # 确保输入是浮点类型
+    img_feature = img_feature.float()
+    all_features = all_features.float()
+    
+    # 确保特征向量是2D的 [1, D]
+    if img_feature.dim() == 1:
+        img_feature = img_feature.unsqueeze(0)
+    
+    # 检查NaN/Inf值
+    assert torch.isfinite(img_feature).all(), "img_feature contains NaN/Inf values"
+    assert torch.isfinite(all_features).all(), "all_features contains NaN/Inf values"    
+    
+    # 归一化特征向量
+    img_feature = F.normalize(img_feature, p=2, dim=1)
+    all_features = F.normalize(all_features, p=2, dim=1)
+    
+    # 计算余弦相似度 [-1,1]
+    cosine_sim = torch.mm(all_features, img_feature.t()).squeeze(1)
+    
+    # 转换到[0,1]范围
+    cosine_sim = (cosine_sim + 1) / 2  # 方法1：线性缩放
+    # cosine_sim = torch.sigmoid(cosine_sim)  # 方法2：sigmoid
+    
+    # 确保数值稳定性
+    cosine_sim = torch.clamp(cosine_sim, 0.0, 1.0)
+    
+    return cosine_sim
+
+
+def visualize_top_images(images, save_path, similarities, save_folder, iteration):
+    """
+    使用 matplotlib 按相似度顺序显示选中的图片
+    :param image_paths: 图片路径列表
+    :param similarities: 每张图片的相似度列表
+    """
+    # 将图片路径和相似度结合，并按相似度降序排序
+    image_similarity_pairs = sorted(zip(images, similarities), key=lambda x: x[1], reverse=True)
+    
+    # 拆分排序后的图片路径和相似度
+    sorted_images, sorted_similarities = zip(*image_similarity_pairs)
+
+    # 绘制图像
+    fig, axes = plt.subplots(1, len(sorted_images), figsize=(15, 5))
+    for i, image in enumerate(sorted_images):
+        axes[i].imshow(image)
+        axes[i].axis('off')
+        axes[i].set_title(f'Similarity: {sorted_similarities[i]:.4f}', fontsize=8)  # 显示相似度
+    plt.show()
+    
+    os.makedirs(save_folder, exist_ok=True)  # 创建文件夹（如果不存在）
+    save_path = os.path.join(save_folder, f"visualization_iteration_{iteration}.png")
+    fig.savefig(save_path, bbox_inches='tight', dpi=300)  # 保存图像文件
+    print(f"Visualization saved to {save_path}")
+    
+def load_target_feature(target_path, fs, selected_channel_idxes):
+    target_signal = np.load(target_path, allow_pickle=True)
+    selected_target_signal = target_signal[selected_channel_idxes, :]
+    target_psd, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
+    return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
+
+def preprocess_image(image_path, device):
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)), 
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    image = Image.open(image_path).convert('RGB')
+    image_tensor = transform(image).unsqueeze(0).to(device)
+    return image_tensor
+
+def generate_eeg_from_image_paths(model_path, test_image_list, save_dir, device):
+    synthetic_eegs = []
+    model = load_model_encoder(model_path, device)
+    for idx, image_path in enumerate(test_image_list):
+        image_tensor = preprocess_image(image_path, device)
+        synthetic_eeg = generate_eeg(model, image_tensor, device)
+        synthetic_eegs.append(synthetic_eeg)
+
+    return synthetic_eegs
+
+def load_model_encoder(model_path, device):
+    model = create_model(device, 'alexnet')
+    checkpoint = torch.load(model_path, map_location=device)
+    model.load_state_dict(checkpoint['best_model'])
+    model.eval()
+    return model  
+
+def create_model(device, dnn):
+    if dnn == 'alexnet':
+        model = models.alexnet(pretrained=True)
+        model.classifier[6] = torch.nn.Linear(4096, 4250)
+    model = model.to(device)
+    return model 
+     
+def generate_eeg_from_image(model_path, images, save_dir, device):
+    synthetic_eegs = []
+    model = load_model_encoder(model_path, device)
+    for idx, image in enumerate(images):
+        image_tensor = preprocess_generated_image(image, device)
+        synthetic_eeg = generate_eeg(model, image_tensor, device)
+        synthetic_eegs.append(synthetic_eeg)
+        # category = category_list[idx]
+        # save_eeg_signal(synthetic_eeg, save_dir, idx, category)
+    return synthetic_eegs
+
+def preprocess_generated_image(image, device):
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)), 
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])    
+    
+    image_tensor = transform(image).unsqueeze(0).to(device)
+    return image_tensor
+
+def calculate_loss_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
+    # eeg = np.load(eeg_path, allow_pickle=True)
+    # selected_eeg = eeg[selected_channel_idxes, :]
+    # psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
+    # psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    # target_feature = torch.tensor(target_feature).view(1, 378)
+    # loss_fn = nn.MSELoss()
+    # loss = loss_fn(psd, target_feature)    
+    loss = 0
+    return loss
+
+def calculate_loss(eeg, target_feature, fs, selected_channel_idxes):    
+    # selected_eeg = eeg[selected_channel_idxes, :]
+    # psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
+    # psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    # target_feature = torch.tensor(target_feature).view(1, 378)
+    # loss_fn = nn.MSELoss()
+    # loss = loss_fn(psd, target_feature)
+    loss = 0
+    return loss
+
+def calculate_loss_clip_embed():
+    loss = 0
+    return loss
+
+def calculate_loss_clip_embed_image():
+    loss = 0
+    return loss
+
+def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
+    eeg = np.load(eeg_path, allow_pickle=True)
+    selected_eeg = eeg[selected_channel_idxes, :]
+    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
+    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    return F.cosine_similarity(target_feature, psd).item()
+
+
+def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
+    selected_target_signal = target_signal[selected_channel_idxes, :]
+    psd_feature, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
+    return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
+
+def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
+    selected_eeg = eeg[selected_channel_idxes, :]
+    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
+    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    return F.cosine_similarity(target_feature, psd).item()
+
+
+def reward_function_clip_embed_image(pil_image, target_feature, device, vlmodel, preprocess_train):
+    """
+    生成与某张图片对应的脑电信号，并与 groundtruth 进行相似度计算
+    :param image: 图片特征向量 [1024]
+    :param groundtruth_eeg: groundtruth 的特征向量 [1024]
+    :return: EEG信号与groundtruth的相似度
+    """    
+    tensor_images = [preprocess_train(pil_image)]    
+    with torch.no_grad():
+        img_embeds = vlmodel.encode_image(torch.stack(tensor_images).to(device))      
+    
+    similarity = torch.nn.functional.cosine_similarity(img_embeds.to(device), target_feature.to(device))
+    
+    similarity = (similarity + 1) / 2    
+    # print(similarity)
+    return similarity.item()
+
+def reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device):
+    """
+    生成与某张图片对应的脑电信号，并与 groundtruth 进行相似度计算
+    :param image: 图片特征向量 [1024]
+    :param groundtruth_eeg: groundtruth 的特征向量 [1024]
+    :return: EEG信号与groundtruth的相似度
+    """    
+    eeg_feature = get_eeg_features(eeg_model, torch.tensor(eeg).unsqueeze(0), device, sub)    
+    similarity = torch.nn.functional.cosine_similarity(eeg_feature.to(device), target_feature.to(device))
+    # cos_sim = F.softmax(cos_sim)
+    similarity = (similarity + 1) / 2
+    
+    # print(similarity)
+    return similarity.item(), eeg_feature
+
+def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
+    eeg = np.load(eeg_path, allow_pickle=True)
+    selected_eeg = eeg[selected_channel_idxes, :]
+    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
+    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    return F.cosine_similarity(target_feature, psd).item()
+
+
+def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
+    selected_target_signal = target_signal[selected_channel_idxes, :]
+    psd_feature, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
+    return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
+
+def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
+    selected_eeg = eeg[selected_channel_idxes, :]
+    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
+    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    return F.cosine_similarity(target_feature, psd).item()
+
+def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, scale, target_feature):        
+        # 随机选择两个不同的索引
+    idx1, idx2 = random.sample(range(len(img_embeds)), 2)
+    # 获取对应的嵌入向量并添加批次维度
+    embed1, embed2 = img_embeds[idx1].unsqueeze(0), img_embeds[idx2].unsqueeze(0)
+    embed_len = embed1.size(1)
+    start_idx = random.randint(0, embed_len - scale - 1)
+    end_idx = start_idx + scale
+    temp = embed1[:, start_idx:end_idx].clone()
+    embed1[:, start_idx:end_idx] = embed2[:, start_idx:end_idx]
+    embed2[:, start_idx:end_idx] = temp
+    # print(f"chosen_images {len(chosen_images)}")
+    # print(f"rewards {len(rewards)}")
+    generated_images = []        
+    # with torch.no_grad():         
+    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), target_feature, prompt='', save_path=None, start_embedding=embed1)
+    # image = generator.generate(embed1)
+    generated_images.extend(images)
+    # print(f"type(images) {type(images)}")
+    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), target_feature, prompt='', save_path=None, start_embedding=embed2)
+    # image = generator.generate(embed2)
+    generated_images.extend(images)
+    
+    return generated_images
+    
+def select_from_image_paths(probabilities, similarities, sample_image_paths, synthetic_eegs, size):
+    chosen_indices = np.random.choice(len(probabilities), size=size, replace=False, p=probabilities)
+    # print(f"sample_image_paths {len(sample_image_paths)}")
+    # print(f"chosen_indices  {chosen_indices}")
+    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
+    chosen_images = [Image.open(sample_image_paths[i]).convert("RGB") for i in chosen_indices.tolist()]        
+    chosen_eegs = [synthetic_eegs[idx] for idx in chosen_indices.tolist()]
+    return chosen_similarities, chosen_images, chosen_eegs
+
+def select_from_image_paths_without_eeg(probabilities, similarities, losses, sample_image_paths, size):
+    chosen_indices = np.random.choice(len(probabilities), size=size, replace=False, p=probabilities)
+    # print(f"sample_image_paths {len(sample_image_paths)}")
+    # print(f"chosen_indices  {chosen_indices}")
+    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
+    chosen_losses = [losses[idx] for idx in chosen_indices.tolist()]    
+    chosen_images = [Image.open(sample_image_paths[i]).convert("RGB") for i in chosen_indices.tolist()]        
+    return chosen_similarities, chosen_losses, chosen_images
+
+def select_from_images(probabilities, similarities, images_list, eeg_list, size):
+    chosen_indices = np.random.choice(len(similarities), size=size, replace=False, p=probabilities)
+    # print(f"eeg_list {len(eeg_list)}")
+    # print(f"chosen_indices  {chosen_indices}")    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
+    chosen_images = [images_list[idx] for idx in chosen_indices.tolist()]
+    chosen_eegs = [eeg_list[idx] for idx in chosen_indices.tolist()]
+    return chosen_similarities, chosen_images, chosen_eegs
+
+class HeuristicGenerator:
+    def __init__(self, pipe, vlmodel, preprocess_train, device="cuda"):
+        self.pipe = pipe
+        self.vlmodel = vlmodel
+        self.preprocess_train = preprocess_train
+        self.device = device
+        
+        # Hyperparameters
+        self.batch_size = 32
+        self.alpha = 80
+        self.total_steps = 15
+        self.max_inner_steps = 10
+        self.num_inference_steps = 8
+        self.guidance_scale = 0.0
+        self.dimension = 1024
+        self.self_improvement_ratio = 0.5
+        self.reward_scaling_factor = 100
+        self.initial_step_size = 30
+        self.decay_rate = 0.1
+        self.generate_batch_size = 1
+        self.save_per = 5
+        
+        # Initialize components
+        self.pseudo_target_model = PseudoTargetModel(dimension=self.dimension, noise_level=1e-4).to(self.device)
+        self.generator = torch.Generator(device=device).manual_seed(0)
+        
+        # Load IP adapter
+        self.pipe.load_ip_adapter(
+            "h94/IP-Adapter", subfolder="sdxl_models", 
+            weight_name="ip-adapter_sdxl_vit-h.bin", 
+            torch_dtype=torch.bfloat16)
+        self.pipe.set_ip_adapter_scale(0.5)
+    
+    def reward_function_embed(self, embed1, embed2):
+        """
+        Compute reward based on cosine similarity between CLIP embeddings
+        
+        Args:
+            embed1: First set of embeddings (batch_size, embedding_dim)
+            embed2: Second set of embeddings (batch_size, embedding_dim)
+            
+        Returns:
+            Normalized similarity scores in [0, 1] range
+        """
+        # Compute cosine similarity (range [-1, 1])
+        cosine_sim = F.cosine_similarity(embed1, embed2, dim=1)
+        
+        # Normalize to [0, 1] range
+        normalized_sim = (cosine_sim + 1) / 2
+        
+        return normalized_sim
+    
+    def latents_to_images(self, latents):
+        shift_factor = self.pipe.vae.config.shift_factor if self.pipe.vae.config.shift_factor else 0.0
+        latents = (latents / self.pipe.vae.config.scaling_factor) + shift_factor
+        images = self.pipe.vae.decode(latents, return_dict=False)[0]
+        images = self.pipe.image_processor.postprocess(images.detach())
+        return images
+    
+    def x_flatten(self, x):
+        return einops.rearrange(x, '... C W H -> ... (C W H)', 
+                              C=self.pipe.unet.config.in_channels, 
+                              W=self.pipe.unet.config.sample_size, 
+                              H=self.pipe.unet.config.sample_size)
+    
+    def x_unflatten(self, x):
+        return einops.rearrange(x, '... (C W H) -> ... C W H', 
+                              C=self.pipe.unet.config.in_channels, 
+                              W=self.pipe.unet.config.sample_size, 
+                              H=self.pipe.unet.config.sample_size)
+    
+    def get_norm(self, epsilon):
+        return self.x_flatten(epsilon).norm(dim=-1)[:,:,None,None,None]
+    
+    def merge_images_grid(self, image_grid):
+        rows = len(image_grid)
+        cols = len(image_grid[0])
+        img_width, img_height = image_grid[0][0].size
+        merged_image = Image.new('RGB', (cols * img_width, rows * img_height))
+        
+        for row_idx, row in enumerate(image_grid):
+            for col_idx, img in enumerate(row):
+                merged_image.paste(img, (col_idx * img_width, row_idx * img_height))
+        
+        return merged_image
+        
+    def generate(self, data_x, data_y, tar_image_embed, prompt='', save_path=None, start_embedding=None):
+        # Add model data
+        # print(f"data_x {data_x[0].shape}")
+        # print(f"data_y {data_y}")
+        
+        
+        # Initialize noise
+        epsilon = torch.randn(self.num_inference_steps+1, self.generate_batch_size, 
+                            self.pipe.unet.config.in_channels, 
+                            self.pipe.unet.config.sample_size, 
+                            self.pipe.unet.config.sample_size, 
+                            device=self.device, generator=self.generator)
+        
+        epsilon_init = epsilon.clone()
+        epsilon_init_norm = self.get_norm(epsilon_init)
+        all_images = []
+        
+        # Initialize pseudo target
+        if start_embedding is not None:
+            pseudo_target = start_embedding.expand(self.generate_batch_size, self.dimension).to(self.device)
+        else:
+            pseudo_target = torch.randn(self.generate_batch_size, self.dimension, device=self.device, generator=self.generator)
+        
+        for step in range(self.total_steps):
+            # Generate latents and images
+            latents = self.pipe(
+                [prompt]*self.generate_batch_size,
+                ip_adapter_image_embeds=[pseudo_target.unsqueeze(0).type(torch.bfloat16).to(self.device)],
+                latents=epsilon[0].type(torch.bfloat16),
+                given_noise=epsilon[1:].type(torch.bfloat16),
+                output_type="latent",
+                num_inference_steps=self.num_inference_steps,
+                guidance_scale=self.guidance_scale,
+                eta=1.0,
+            ).images
+            
+            images = self.latents_to_images(latents)         
+            
+            data_x, data_y = self.pseudo_target_model.get_model_data()   
+            # print(f"data_y.size(0) {data_y.size(0)}")
+            if data_y.size(0) < 50: #w/o optimization 
+                return images
+            
+            image_inputs = torch.stack([self.preprocess_train(img) for img in images])
+            
+            # Get image features and calculate similarity
+            with torch.no_grad():
+                image_features = self.vlmodel.encode_image(image_inputs.to(self.device)) 
+            
+            # Use the class method instead of external function
+            # scaled_similarity = self.reward_function_embed(
+            #     image_features, 
+            #     tar_image_embed.expand(self.generate_batch_size, tar_image_embed.size(-1))
+            # ) 
+            
+            # Update pseudo target
+            step_size = self.initial_step_size / (1 + self.decay_rate * step)
+            # print(f"image_features {image_features.shape}")
+            # print(f"image_features {len(image_features)}")
+
+            pseudo_target = self.pseudo_target_model.estimate_pseudo_target(image_features, step_size=step_size) #batchsize, hidden_dim
+            
+            # Save images periodically
+            if step % self.save_per == 0:
+                # print(f"scaled_similarity {scaled_similarity}")
+                all_images.append(images)
+            
+            del latents
+        # Save merged image if path provided
+        if save_path:
+            merged_image = self.merge_images_grid(all_images)
+            merged_image.save(save_path)
+        
+        return images
