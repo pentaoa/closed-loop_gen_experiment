@@ -18,7 +18,7 @@ image_set_path = f'stimuli_SX'
     
 
 selected_channels = []
-use_eeg = False
+use_eeg = True
 
 url = 'http://10.20.37.38:45565'
 
@@ -42,7 +42,8 @@ def connect():
 
 @sio.event
 def experiment_2_ready():
-    view.display_text('Experiment 2 ready, please wait')
+    view.display_text('Experiment is ready, please wait')
+    time.sleep(4)
     # 向服务器发送开始实验的信号
     send_url = f'{url}/experiment_2'
     requests.post(send_url)
