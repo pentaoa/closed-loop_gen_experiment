@@ -1,6 +1,6 @@
 import os
 import random
-import signal # 在 real_time_processing 和 prepare_filters 中使用
+from scipy import signal
 
 import numpy as np
 import torch
@@ -474,7 +474,7 @@ def compute_embed_similarity(img_feature, all_features):
     return cosine_sim
 
 
-def visualize_top_images(images, save_path, similarities, save_folder, iteration):
+def visualize_top_images(images, similarities, save_folder, iteration):
     """
     使用 matplotlib 按相似度顺序显示选中的图片
     :param image_paths: 图片路径列表
@@ -501,7 +501,11 @@ def visualize_top_images(images, save_path, similarities, save_folder, iteration
     
 def load_target_feature(target_path, fs, selected_channel_idxes):
     target_signal = np.load(target_path, allow_pickle=True)
-    selected_target_signal = target_signal[selected_channel_idxes, :]
+    # 如果 selected_channel_idxes 是空的或者 None，则使用所有通道
+    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
+        pass
+    else:
+        selected_target_signal = target_signal[selected_channel_idxes, :]
     target_psd, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
 
@@ -642,6 +646,8 @@ def reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device)
     return similarity.item(), eeg_feature
 
 def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
+    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
+        selected_channel_idxes = range(target_feature.shape[0])
     eeg = np.load(eeg_path, allow_pickle=True)
     selected_eeg = eeg[selected_channel_idxes, :]
     psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
@@ -650,17 +656,21 @@ def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel
 
 
 def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
+    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
+        selected_channel_idxes = range(target_signal.shape[0])
     selected_target_signal = target_signal[selected_channel_idxes, :]
     psd_feature, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
     return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
 
 def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
+    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
+        selected_channel_idxes = range(eeg.shape[0])
     selected_eeg = eeg[selected_channel_idxes, :]
     psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
     psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
     return F.cosine_similarity(target_feature, psd).item()
 
-def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, scale, target_feature):        
+def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, scale):        
         # 随机选择两个不同的索引
     idx1, idx2 = random.sample(range(len(img_embeds)), 2)
     # 获取对应的嵌入向量并添加批次维度
@@ -675,11 +685,11 @@ def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, sc
     # print(f"rewards {len(rewards)}")
     generated_images = []        
     # with torch.no_grad():         
-    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), target_feature, prompt='', save_path=None, start_embedding=embed1)
+    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), prompt='', save_path=None, start_embedding=embed1)
     # image = generator.generate(embed1)
     generated_images.extend(images)
     # print(f"type(images) {type(images)}")
-    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), target_feature, prompt='', save_path=None, start_embedding=embed2)
+    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), prompt='', save_path=None, start_embedding=embed2)
     # image = generator.generate(embed2)
     generated_images.extend(images)
     
@@ -695,15 +705,14 @@ def select_from_image_paths(probabilities, similarities, sample_image_paths, syn
     chosen_eegs = [synthetic_eegs[idx] for idx in chosen_indices.tolist()]
     return chosen_similarities, chosen_images, chosen_eegs
 
-def select_from_image_paths_without_eeg(probabilities, similarities, losses, sample_image_paths, size):
+def select_from_image_paths_without_eeg(probabilities, similarities, sample_image_paths, size):
     chosen_indices = np.random.choice(len(probabilities), size=size, replace=False, p=probabilities)
     # print(f"sample_image_paths {len(sample_image_paths)}")
     # print(f"chosen_indices  {chosen_indices}")
     
-    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
-    chosen_losses = [losses[idx] for idx in chosen_indices.tolist()]    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()]     
     chosen_images = [Image.open(sample_image_paths[i]).convert("RGB") for i in chosen_indices.tolist()]        
-    return chosen_similarities, chosen_losses, chosen_images
+    return chosen_similarities, chosen_images
 
 def select_from_images(probabilities, similarities, images_list, eeg_list, size):
     chosen_indices = np.random.choice(len(similarities), size=size, replace=False, p=probabilities)
@@ -713,6 +722,14 @@ def select_from_images(probabilities, similarities, images_list, eeg_list, size)
     chosen_images = [images_list[idx] for idx in chosen_indices.tolist()]
     chosen_eegs = [eeg_list[idx] for idx in chosen_indices.tolist()]
     return chosen_similarities, chosen_images, chosen_eegs
+
+def select_from_images_without_eeg(probabilities, similarities, images_list, size):
+    chosen_indices = np.random.choice(len(similarities), size=size, replace=False, p=probabilities)
+    # print(f"eeg_list {len(eeg_list)}")
+    # print(f"chosen_indices  {chosen_indices}")    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
+    chosen_images = [images_list[idx] for idx in chosen_indices.tolist()]
+    return chosen_similarities, chosen_images
 
 class HeuristicGenerator:
     def __init__(self, pipe, vlmodel, preprocess_train, device="cuda"):
@@ -800,7 +817,7 @@ class HeuristicGenerator:
         
         return merged_image
         
-    def generate(self, data_x, data_y, tar_image_embed, prompt='', save_path=None, start_embedding=None):
+    def generate(self, data_x, data_y, prompt='', save_path=None, start_embedding=None):
         # Add model data
         # print(f"data_x {data_x[0].shape}")
         # print(f"data_y {data_y}")

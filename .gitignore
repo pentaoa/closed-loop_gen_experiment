@@ -16,6 +16,8 @@ server/data/
 DIRTI Database/
 data/
 client/data/
+server/outputs/
+server/target_embed
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
