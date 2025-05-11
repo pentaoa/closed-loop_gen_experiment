@@ -20,15 +20,15 @@ image_set_path = f'stimuli_SX'
 selected_channels = []
 use_eeg = True
 
-url = 'http://10.20.37.38:45565'
+url = 'http://10.20.37.38:45525'
 
 sio = socketio.Client() 
 
 # 建立连接
-@sio.event
-def connect():
-    print('Connected to server')
-    time.sleep(1)
+# @sio.event
+# def connect():
+#     print('Connected to server')
+#     time.sleep(1)
 
 
 # @sio.event
@@ -44,7 +44,7 @@ def connect():
 def experiment_2_ready():
     view.display_text('Experiment is ready, please wait')
     time.sleep(4)
-    # 向服务器发送开始实验的信号
+    # # 向服务器发送开始实验的信号
     send_url = f'{url}/experiment_2'
     requests.post(send_url)
 
@@ -193,7 +193,7 @@ if __name__ == '__main__':
         controller = BaseController(model, view)
 
 
-    sio.connect(url)
+    sio.connect(url) 
 
     controller.run()
 
