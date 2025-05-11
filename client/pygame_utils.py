@@ -139,73 +139,6 @@ class BaseController:
             
             clock.tick(60)  # 控制帧率
 
-    def start_experiment_1(self, image_set_path, pre_eeg_path):
-        print("Start experiment 1")
-        self.view.display_text('Ready to start experiment 1')
-        pg.time.delay(5) 
-        
-        # 获取所有图片文件
-        all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
-        
-        # 按情绪类别分组图片
-        amu_images = [f for f in all_image_files if f.startswith('Amu-')]
-        dis_images = [f for f in all_image_files if f.startswith('Dis-')]
-        
-        print(f"找到 {len(amu_images)} 张 Amu 图片")
-        print(f"找到 {len(dis_images)} 张 Dis 图片")
-        
-        # 初始化标签列表
-        labels = []
-        pg.event.clear()  # 清除事件队列
-        pg.time.delay(5)  
-        
-        # 先展示 Amu 图片 (5次)
-        for repeat in range(5):
-            print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
-            random.shuffle(amu_images)  # 每轮随机打乱顺序
-            
-            for idx, image_file in enumerate(amu_images):
-                label = 'Amu'
-                labels.append(label)
-                
-                image_path = os.path.join(image_set_path, image_file)
-                print(f"显示图片: {image_path}")
-                
-                image = pg.image.load(image_path)
-                self.view.display_image(image)
-                
-                start_time = pg.time.get_ticks()
-                while pg.time.get_ticks() - start_time < 5000:
-                    self.process_events()
-                    pg.time.delay(10) 
-                self.view.clear_screen()
-                pg.time.delay(1000)
-        
-        # 再展示 Dis 图片 (5次)
-        for repeat in range(5):
-            print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
-            random.shuffle(dis_images)  # 每轮随机打乱顺序
-            
-            for idx, image_file in enumerate(dis_images):
-                label = 'Dis'
-                labels.append(label)
-                
-                image_path = os.path.join(image_set_path, image_file)
-                print(f"显示图片: {image_path}")
-                
-                image = pg.image.load(image_path)
-                self.view.display_image(image)
-                
-                start_time = pg.time.get_ticks()
-                while pg.time.get_ticks() - start_time < 5000:
-                    self.process_events()
-                    pg.time.delay(10) 
-                self.view.clear_screen()
-                pg.time.delay(1000)
-
-        # 采集结束，保存数据
-        self.view.display_text('Experiment 1 finished')
-
     def start_rating(self, instant_image_path):
         print("Start rating")
         self.view.display_text('Ready to start rating')
@@ -213,29 +146,20 @@ class BaseController:
         # 获取所有图片文件
         all_image_files = [f for f in os.listdir(instant_image_path) if f.endswith('.jpg') or f.endswith('.png')]
         
-        # 随机打乱顺序
-        random.shuffle(all_image_files)
-        
         # 初始化标签列表
-        labels = []
         ratings = []
         
         # 显示图片并采集数据
         for image_file in all_image_files:
-            label = 'rating'
-            labels.append(label)
-            
             image_path = os.path.join(instant_image_path, image_file)
             print(f"显示图片: {image_path}")
             
             image = pg.image.load(image_path)
             self.view.display_image(image)
             start_time = pg.time.get_ticks()
-            while pg.time.get_ticks() - start_time < 5000:
+            while pg.time.get_ticks() - start_time < 2000:
                 self.process_events()
                 pg.time.delay(10)             
-            self.view.display_text('Please rate the image')
-            time.sleep(1)
             score = self.view.rating()
             if score is None:
                 score = 0.5  # 默认评分
@@ -276,86 +200,18 @@ class EEGController:
             self.running = self.process_events()
             
             clock.tick(60)  # 控制帧率
-
-    def start_experiment_1(self, image_set_path, pre_eeg_path):
-        print("Start experiment 1")
-        self.view.display_text('Ready to start experiment 1')
-        time.sleep(5)
-        
-        # 获取所有图片文件
-        all_image_files = [f for f in os.listdir(image_set_path) if f.endswith('.jpg') or f.endswith('.png')]
-        
-        # 按情绪类别分组图片
-        amu_images = [f for f in all_image_files if f.startswith('Amu-')]
-        dis_images = [f for f in all_image_files if f.startswith('Dis-')]
-        
-        print(f"找到 {len(amu_images)} 张 Amu 图片")
-        print(f"找到 {len(dis_images)} 张 Dis 图片")
-        
-        # 初始化标签列表
-        labels = []
-        
-        time.sleep(0.50)  # 500ms 黑屏
-        
-        # 先展示 Amu 图片 (5次)
-        for repeat in range(5):
-            print(f"正在显示 Amu 图片 (第 {repeat+1}/5 轮)")
-            random.shuffle(amu_images)  # 每轮随机打乱顺序
             
-            for idx, image_file in enumerate(amu_images):
-                label = 'Amu'
-                labels.append(label)
-                
-                image_path = os.path.join(image_set_path, image_file)
-                print(f"显示图片: {image_path}")
-                
-                image = pg.image.load(image_path)
-                self.view.display_image(image)
-                
-                # 发送触发器，使用图片的索引作为触发器代码
-                self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
-                
-                time.sleep(5)  # 显示图片 5s
-                self.view.clear_screen()
-                time.sleep(1)  # 显示注视点 1s
-        
-        # 再展示 Dis 图片 (5次)
-        for repeat in range(5):
-            print(f"正在显示 Dis 图片 (第 {repeat+1}/5 轮)")
-            random.shuffle(dis_images)  # 每轮随机打乱顺序
-            
-            for idx, image_file in enumerate(dis_images):
-                label = 'Dis'
-                labels.append(label)
-                
-                image_path = os.path.join(image_set_path, image_file)
-                print(f"显示图片: {image_path}")
-                
-                image = pg.image.load(image_path)
-                self.view.display_image(image)
-                
-                # 发送触发器，使用图片的索引作为触发器代码
-                self.model.trigger(len(labels))  # 使用累计图片数作为触发器代码
-                
-                time.sleep(5)  # 显示图片 5s
-                self.view.clear_screen()
-                time.sleep(1)  # 显示注视点 1s
-
-        # 采集结束，保存数据
-        self.view.display_text('Pre-experiment finished')
-        self.model.save_pre_eeg(pre_eeg_path)
-        self.model.save_labels(labels, pre_eeg_path)
-        self.view.display_text('Data saved')
-            
+    
     def start_collect_and_rating(self, instant_image_path, instant_eeg_path):
-        print("Start rating and collecting EEG data")
+        print("Start rating")
         self.view.display_text('Ready to start rating')
         
         # 获取所有图片文件
         all_image_files = [f for f in os.listdir(instant_image_path) if f.endswith('.jpg') or f.endswith('.png')]
         
-        count = 0
+        # 初始化标签列表
         ratings = []
+        count = 0
         
         # 显示图片并采集数据
         for image_file in all_image_files:
@@ -367,85 +223,15 @@ class EEGController:
             self.view.display_image(image)
             self.model.trigger(count)
             start_time = pg.time.get_ticks()
-            while pg.time.get_ticks() - start_time < 5000:
+            while pg.time.get_ticks() - start_time < 2000:
                 self.process_events()
                 pg.time.delay(10)             
-            self.view.display_text('Please rate the image')
-            time.sleep(1)
             score = self.view.rating()
             if score is None:
                 score = 0.5  # 默认评分
             ratings.append(score)
             print(f"评分: {score}")
-            
-        self.view.display_text('wait...')
         self.model.save_eeg(instant_eeg_path, '1')
-        return ratings
-    
-    def collect_data(self, image_path, num_of_events):
-        """
-        采集数据
-        :param image_path: 图片路径
-        :param num_of_events: 事件数
-        :return: 处理后的事件数据eeg列表
-        """
-        self.view.display_text('Ready to start')
-        time.sleep(0.5)
-
-        image = pg.image.load(image_path)
-        self.view.display_image(image)
-        self.model.trigger(1)  # 使用图像的索引发送触发器
-        time.sleep(5)
-        self.view.clear_screen()
-        time.sleep(1)
-
-        self.view.display_text('Processing...')
-
-        data = self.model.thread_data_server.GetBufferData()
-        event_data_list = create_last_event_npy(data, num_of_events)
-        # event_data = event_data_list[0] # 取最后 num_of_events 个事件数据
-        filters = prepare_filters(fs = self.model.sample_rate, new_fs=250)
-        processed_event_data_list = []
-        for event_data in event_data_list:
-            data = real_time_process(event_data, filters)
-            processed_event_data_list.append(data)
-        return processed_event_data_list
-    
-    def start_rating(self, instant_image_path):
-        print("Start rating")
-        self.view.display_text('Ready to start rating')
-        
-        # 获取所有图片文件
-        all_image_files = [f for f in os.listdir(instant_image_path) if f.endswith('.jpg') or f.endswith('.png')]
-        
-        # 随机打乱顺序
-        random.shuffle(all_image_files)
-        
-        # 初始化标签列表
-        labels = []
-        ratings = []
-        
-        # 显示图片并采集数据
-        for image_file in all_image_files:
-            label = 'rating'
-            labels.append(label)
-            
-            image_path = os.path.join(instant_image_path, image_file)
-            print(f"显示图片: {image_path}")
-            
-            image = pg.image.load(image_path)
-            self.view.display_image(image)
-            start_time = pg.time.get_ticks()
-            while pg.time.get_ticks() - start_time < 5000:
-                self.process_events()
-                pg.time.delay(10)             
-            self.view.display_text('Please rate the image')
-            time.sleep(1)
-            score = self.view.rating()
-            if score is None:
-                score = 0.5  # 默认评分
-            ratings.append(score)
-            print(f"评分: {score}")
         return ratings
     
     def rating(self):
