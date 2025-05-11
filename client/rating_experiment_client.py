@@ -18,7 +18,7 @@ image_set_path = f'stimuli_SX'
     
 
 selected_channels = []
-use_eeg = True
+use_eeg = False
 
 url = 'http://10.20.37.38:45525'
 
@@ -30,22 +30,20 @@ sio = socketio.Client()
 #     print('Connected to server')
 #     time.sleep(1)
 
-
-# @sio.event
-# def experiment_1_ready():
-#     time.sleep(2)
-#     controller.start_experiment_1(image_set_path, pre_eeg_path)
-#     print('Start data sending')
-#     # 发送 pre_eeg_path 中的所有 npy 文件到服务器
-#     send_url = f'{url}/experiment_1_eeg_upload'
-#     send_files_to_server(pre_eeg_path, send_url)
-
 @sio.event
 def experiment_2_ready():
     view.display_text('Experiment is ready, please wait')
     time.sleep(4)
     # # 向服务器发送开始实验的信号
     send_url = f'{url}/experiment_2'
+    requests.post(send_url)
+
+@sio.event
+def experiment_1_ready():
+    view.display_text('Experiment is ready, please wait')
+    time.sleep(4)
+    # # 向服务器发送开始实验的信号
+    send_url = f'{url}/experiment_1'
     requests.post(send_url)
 
 def send_files_to_server(pre_eeg_path, url):
@@ -175,9 +173,11 @@ def image_for_collection(data):
 @sio.event
 def experiment_finished(data):
     print(data['message'])
-    controller.stop_collection()
+    if use_eeg:
+        controller.stop_collection()
     # 断开连接
     sio.disconnect()
+    quit()
 
 
 if __name__ == '__main__':

@@ -223,7 +223,7 @@ class EEGController:
             self.view.display_image(image)
             self.model.trigger(count)
             start_time = pg.time.get_ticks()
-            while pg.time.get_ticks() - start_time < 2000:
+            while pg.time.get_ticks() - start_time < 5000:
                 self.process_events()
                 pg.time.delay(10)             
             score = self.view.rating()
