@@ -406,7 +406,7 @@ def real_time_process(original_data, filters, apply_baseline=True):
         # 采样率为250Hz，所以1秒对应250个数据点，5秒对应1250个数据点
         
         # 确定数据长度够不够一个完整的刺激周期
-        if filtered_data.shape[1] >= 1500:  # 至少需要6秒数据(停顿1秒+刺激5秒)
+        if filtered_data.shape[1] >= 1250:  # 至少需要6秒数据(停顿1秒+刺激5秒)
             # 使用停顿期的最后250ms作为基线
             baseline_window = (-250, 0)  # 刺激前250ms作为基线
             stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
@@ -499,14 +499,37 @@ def visualize_top_images(images, similarities, save_folder, iteration):
     fig.savefig(save_path, bbox_inches='tight', dpi=300)  # 保存图像文件
     print(f"Visualization saved to {save_path}")
     
+# def load_target_feature(target_path, fs, selected_channel_idxes):
+#     target_signal = np.load(target_path, allow_pickle=True)
+#     print(f"target_signal shape: {target_signal.shape}")
+#     # noise = torch.randn(size=(3, 250))
+#     target_psd, _ = psd_array_multitaper(target_signal, fs, adaptive=True, normalization='full', verbose=0)
+#     print(f"Target psd shape:{target_psd.shape}")
+#     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
+
 def load_target_feature(target_path, fs, selected_channel_idxes):
     target_signal = np.load(target_path, allow_pickle=True)
-    # 如果 selected_channel_idxes 是空的或者 None，则使用所有通道
-    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
-        pass
-    else:
-        selected_target_signal = target_signal[selected_channel_idxes, :]
-    target_psd, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
+    target_signal = target_signal[selected_channel_idxes, :]
+    print(f"target_signal shape: {target_signal.shape}")
+    print(f"{target_signal}")
+    # 1. 检查输入数据是否包含无效值
+    if np.isnan(target_signal).any() or np.isinf(target_signal).any():
+        print("警告: 输入信号包含 NaN 或 Inf 值，将替换为零")
+        target_signal = np.nan_to_num(target_signal, nan=0.0, posinf=0.0, neginf=0.0)
+        
+    if np.allclose(target_signal, 0):
+        print("=====全零!")
+    
+    # 2. 使用更保守的 PSD 计算参数
+    target_psd, _ = psd_array_multitaper(target_signal, fs, adaptive=True, 
+                                        normalization='full', verbose=0)
+    
+    # 3. 检查 PSD 结果是否包含无效值
+    if np.isnan(target_psd).any() or np.isinf(target_psd).any():
+        print("警告: PSD 计算产生了 NaN 或 Inf 值，将替换为零")
+        target_psd = np.nan_to_num(target_psd, nan=0.0, posinf=0.0, neginf=0.0)
+        
+    print(f"Target psd shape:{target_psd.shape}")
     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
 
 def preprocess_image(image_path, device):
@@ -593,12 +616,6 @@ def calculate_loss_clip_embed_image():
     loss = 0
     return loss
 
-def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
-    eeg = np.load(eeg_path, allow_pickle=True)
-    selected_eeg = eeg[selected_channel_idxes, :]
-    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
-    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    return F.cosine_similarity(target_feature, psd).item()
 
 
 def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
@@ -606,11 +623,6 @@ def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
     psd_feature, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
     return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
 
-def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
-    selected_eeg = eeg[selected_channel_idxes, :]
-    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
-    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    return F.cosine_similarity(target_feature, psd).item()
 
 
 def reward_function_clip_embed_image(pil_image, target_feature, device, vlmodel, preprocess_train):
@@ -646,8 +658,6 @@ def reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device)
     return similarity.item(), eeg_feature
 
 def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
-    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
-        selected_channel_idxes = range(target_feature.shape[0])
     eeg = np.load(eeg_path, allow_pickle=True)
     selected_eeg = eeg[selected_channel_idxes, :]
     psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
@@ -656,18 +666,19 @@ def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel
 
 
 def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
-    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
-        selected_channel_idxes = range(target_signal.shape[0])
     selected_target_signal = target_signal[selected_channel_idxes, :]
     psd_feature, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
     return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
 
 def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
     if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
-        selected_channel_idxes = range(eeg.shape[0])
+        # 使用所有通道
+        selected_channel_idxes = range(eeg.shape[0])     
     selected_eeg = eeg[selected_channel_idxes, :]
     psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
     psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    # print(f"F.cosine_similarity(target_feature, psd) {F.cosine_similarity(target_feature, psd)}")
+    # print(f"target_feature {target_feature}")
     return F.cosine_similarity(target_feature, psd).item()
 
 def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, scale):        

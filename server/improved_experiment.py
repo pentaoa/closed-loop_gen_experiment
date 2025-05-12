@@ -10,6 +10,7 @@ import random
 import time
 import shutil
 from threading import Event
+import io
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,13 +38,12 @@ sub = 'sub-01'                # 受试者ID
 subject_id = 1                # 数字形式的受试者ID
 fs = 250                      # EEG采样频率(Hz)
 num_loops = 10                # 实验循环次数
-use_eeg = True                # 是否使用EEG数据
+use_eeg = False               # 是否使用EEG数据
 device = "cuda" if torch.cuda.is_available() else "cpu"  # 计算设备
-feature_type = 'psd'      # 特征类型：'clip', 'psd', 'clip_img'
 model_type = 'ViT-H-14'        # CLIP模型类型
 dnn = 'alexnet'                # DNN模型类型
-random.seed(40)           # 随机种子
-
+random.seed(30)           # 随机种子
+feature_type = 'clip_img'      # 特征类型：'clip', 'psd', 'clip_img'
 
 # 数据收集容器
 processed_paths = set()       # 已处理过的图像路径集合
@@ -61,20 +61,21 @@ fit_rewards = []              # 用于拟合的奖励值
 fit_losses = []               # 用于拟合的损失值
 
 # 保存路径
-save_folder = f'server/outputs/heuristic_generation'       # 基础保存文件夹
 plots_save_folder = 'server/plots/Interactive_search'      # 图表保存文件夹
 
 # 预加载的测试集嵌入
 test_set_img_embeds = torch.load("/mnt/dataset1/ldy/Workspace/FLORA/data_preparing/ViT-H-14_features_test.pt")['img_features'].cpu()
 
 #====================== 路径参数 ======================
-# 图像和数据路径
+# 图像和数据路径``
 # image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'  # 图像集路径
-image_set_path = 'stimuli_SX'  # 图像集路径
+image_set_path = 'image_pool'  # 图像集路径
+# image_set_path = "stimuli_SX"  # 图像集路径
 instant_eeg_path = 'server/data/instant_eeg'                                           # 实时EEG数据存储路径
 cache_path = 'server/data/cache'                                                        # 缓存路径
 # target_image_path = 'stimuli_SX/Dis-07.jpg'   
-target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00135_pie/pie_15s.jpg'
+# target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00135_pie/pie_15s.jpg'
+target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00014_bike/bike_14s.jpg'
 target_eeg_path = ''                                # 目标EEG数据路径
 # 创建输出目录
 output_save_path = f"server/outputs/heuristic_generation/{feature_type}"
@@ -82,7 +83,7 @@ shutil.rmtree(output_save_path, ignore_errors=True)  # 清除之前的输出
 os.makedirs(output_save_path, exist_ok=True)
 
 #====================== 全局变量 ======================
-selected_channel_idxes = []    # 选定的EEG通道索引
+selected_channel_idxes = range(59)  # 选定的EEG通道索引
 target_eeg_path = None         # 目标EEG路径
 target_feature = None           # 目标特征
 clf = None                     # 分类器
@@ -151,9 +152,9 @@ if use_eeg:
 def handle_connect(auth=None):
     """处理客户端连接事件"""
     print('Client connected')
-    print('Send: experiment_2_ready')
-    socketio.emit('experiment_2_ready')  # 通知客户端实验已准备好
-    # experiment_1()
+    # print('Send: experiment_2_ready')
+    # socketio.emit('experiment_2_ready')  # 通知客户端实验已准备好
+    socketio.emit('experiment_1_ready')  # 通知客户端实验已准备好
 
 
 #====================== Flask路由 ======================
@@ -176,11 +177,13 @@ def experiment_1():
     
     
     if (use_eeg):
-        target_eeg = send_images_and_collect_ratings_and_eeg([target_image_path], exp_1_save_path, 1)
-        target_eeg_path = os.path.join(exp_1_save_path, '0.npy')
+        target_eeg_list = send_images_and_collect_ratings_and_eeg([target_image_path], exp_1_save_path, 1)
+        target_eeg_path = os.path.join(exp_1_save_path, 'eeg_0.npy')
+        # 检查目标EEG数据形状和正确性
         # 根据特征类型加载目标特征
         if feature_type == 'psd':
-            target_feature = load_target_feature(target_eeg_path, fs, selected_channel_idxes) 
+            target_feature = load_target_feature(target_eeg_path, fs, selected_channel_idxes)
+            print(f"数据形状: {target_feature.shape}")
         elif feature_type == 'clip':
             target_feature = torch.load(target_eeg_embed)     
         elif feature_type == 'clip_img':
@@ -204,6 +207,7 @@ def experiment_2():
     global target_eeg_path
     global target_image_path
     global ratings
+    global target_feature
 
     print("\n" + "#" * 50)
     print("图片 rating 迭代实验")
@@ -229,6 +233,8 @@ def experiment_2():
     all_chosen_ratings = []      # 记录所有选中图片的评分
     all_chosen_image_paths = []  # 记录所有选中的图片路径
     history_best_ratings = []    # 记录每一轮的最高评分
+    
+    all_viewed_image_paths = []  # 记录所有查看过的图片路径
     
     #====================== 实验主循环 ======================
     for t in range(num_loops):
@@ -258,6 +264,8 @@ def experiment_2():
             # 或者，手动选择
             # sample_image_paths = [...]
             
+            all_viewed_image_paths.extend(sample_image_paths)  # 更新查看过的图片路径
+            
             # 加载图像并准备处理
             pil_images = []
             for sample_image_path in sample_image_paths:
@@ -269,17 +277,22 @@ def experiment_2():
             if (use_eeg):
                 # 发送图像到客户端并收集评分和EEG数据
                 eegs = send_images_and_collect_ratings_and_eeg(sample_image_paths, first_ten, 10)
+                print(f"EEG数据形状: {len(eegs)}")
                 # 计算相似度和损失
                 for idx, eeg in enumerate(eegs):  
                     # 根据特征类型计算相似度和损失
                     if feature_type == 'psd':
                         cs = reward_function(eeg, target_feature, fs, selected_channel_idxes)
+                      
                     elif feature_type == 'clip':
                         cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn)
+                      
                     elif feature_type == 'clip_img':
                         cs = reward_function_clip_embed_image(pil_images[idx], target_feature)   
+
                     
                     similarities.append(cs)        
+                print(f"相似度: {similarities}")
             else:
                 # 发送图像到客户端并收集评分
                 success = send_images_and_collect_ratings(sample_image_paths, first_ten)
@@ -337,6 +350,8 @@ def experiment_2():
                 generated_image.save(image_path)
                 generated_image_paths.append(image_path)
             
+            all_viewed_image_paths.extend(generated_image_paths)  # 更新查看过的图片路径
+            
             similarities = []
             
             if use_eeg:
@@ -352,7 +367,7 @@ def experiment_2():
                     elif feature_type == 'clip_img':
                         cs = reward_function_clip_embed_image(
                             generated_images[idx], target_feature, device, vlmodel, preprocess_train
-                        )             
+                        )            
                     
                     similarities.append(cs)
                     
@@ -428,6 +443,8 @@ def experiment_2():
                 image_path = os.path.join(greedy_dir, f'greedy_{idx}.jpg')
                 greedy_image.save(image_path)
                 greedy_image_paths.append(image_path)
+                
+            all_viewed_image_paths.extend(greedy_image_paths)  # 更新查看过的图片路径
             
             similarities = []
             
@@ -439,12 +456,21 @@ def experiment_2():
                 for idx, eeg in enumerate(greedy_eegs):  
                     if feature_type == 'psd':
                         cs = reward_function(eeg, target_feature, fs, selected_channel_idxes)
+                        if np.isnan(cs):
+                            print("相似度计算为NaN，设置为0")
+                            cs = 0
                     elif feature_type == 'clip':
                         cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device)
+                        if np.isnan(cs):
+                            print("相似度计算为NaN，设置为0")
+                            cs = 0
                     elif feature_type == 'clip_img':
                         cs = reward_function_clip_embed_image(
                             greedy_images[idx], target_feature, device, vlmodel, preprocess_train
                         )  
+                        if np.isnan(cs):
+                            print("相似度计算为NaN，设置为0")
+                            cs = 0
                     
                     similarities.append(cs)
                 
@@ -507,6 +533,7 @@ def experiment_2():
                 chosen_rewards = list(chosen_rewards)
                 chosen_images = list(chosen_images)
 
+        
         # 更新拟合数据
         fit_images = chosen_images
         fit_rewards = chosen_rewards
@@ -531,7 +558,7 @@ def experiment_2():
         )
         
         # 可视化当前循环中评分最高的图像
-        visualize_top_images(loop_sample_ten, loop_reward_ten, save_folder, t)
+        visualize_top_images(loop_sample_ten, loop_reward_ten, output_save_path, t)
 
         # 记录并更新历史最佳相似度
         max_similarity = max(loop_reward_ten)
@@ -554,6 +581,19 @@ def experiment_2():
                 if diff <= 1e-4:
                     print("The difference is within 10e-4, stopping.")
                     break
+    
+    # 保存所有看过的图像的路径为 npy
+    viewed_paths_array = np.array(all_viewed_image_paths, dtype=object)
+    save_viewed_paths = os.path.join(output_save_path, 'viewed_image_paths.npy')
+    np.save(save_viewed_paths, viewed_paths_array)
+    print(f"所有被试看过的图片路径已保存至: {save_viewed_paths}")
+    print(f"被试总共看过 {len(all_viewed_image_paths)} 张图片")
+    
+    # 保存 all_chosen_rewards
+    all_chosen_rewards_array = np.array(all_chosen_rewards, dtype=object)
+    save_rewards_path = os.path.join(output_save_path, 'all_chosen_rewards.npy')
+    np.save(save_rewards_path, all_chosen_rewards_array)
+    print(f"所有被选择的奖励值已保存至: {save_rewards_path}")
     
     # 输出实验结果统计
     print(f"chosen_rewards {len(chosen_rewards)}")
@@ -580,9 +620,8 @@ def experiment_2():
     # 返回实验结果
     return jsonify({
         "message": "实验成功完成",
-        "best_rating": history_best_ratings[-1] if history_best_ratings else 0,
-        "best_image": os.path.basename(all_chosen_image_paths[-1]) if all_chosen_image_paths else ""
     }), 200
+    
 
 @app.route('/eeg_upload', methods=['POST'])
 def receive_eeg():
@@ -603,22 +642,11 @@ def receive_eeg():
             print("错误: 文件名为空")
             return jsonify({"message": "文件名为空"}), 400
         
-        # 确保缓存目录存在
-        os.makedirs(cache_path, exist_ok=True)
-        
-        # 保存上传的文件
-        file_path = os.path.join(cache_path, 'eeg.npy')
-        file.save(file_path)
-        print(f"EEG文件已保存到 {file_path}")
-        
-        try:
-            # 读取npy文件到全局变量
-            eeg = np.load(file_path)
-            print(f"成功加载EEG数据，形状: {eeg.shape}")
-        except Exception as e:
-            print(f"EEG数据加载失败: {str(e)}")
-            return jsonify({"message": f"无法加载EEG数据: {str(e)}"}), 400
-        
+        file_content = file.read()
+        file_like_object = io.BytesIO(file_content)
+        eeg = np.load(file_like_object)
+        print(f"/eeg_upload: EEG数据形状: {eeg.shape}")
+
         # 设置事件，通知等待的函数继续执行
         eeg_received_event.set()
         
