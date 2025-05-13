@@ -38,12 +38,12 @@ sub = 'sub-01'                # 受试者ID
 subject_id = 1                # 数字形式的受试者ID
 fs = 250                      # EEG采样频率(Hz)
 num_loops = 10                # 实验循环次数
-use_eeg = False               # 是否使用EEG数据
-device = "cuda" if torch.cuda.is_available() else "cpu"  # 计算设备
+use_eeg = True         # 是否使用EEG数据
+device = "cuda:1" if torch.cuda.is_available() else "cpu"  # 计算设备
 model_type = 'ViT-H-14'        # CLIP模型类型
 dnn = 'alexnet'                # DNN模型类型
 random.seed(30)           # 随机种子
-feature_type = 'clip_img'      # 特征类型：'clip', 'psd', 'clip_img'
+feature_type = 'clip'      # 特征类型：'clip', 'psd', 'clip_img'
 
 # 数据收集容器
 processed_paths = set()       # 已处理过的图像路径集合
@@ -67,23 +67,32 @@ plots_save_folder = 'server/plots/Interactive_search'      # 图表保存文件�
 test_set_img_embeds = torch.load("/mnt/dataset1/ldy/Workspace/FLORA/data_preparing/ViT-H-14_features_test.pt")['img_features'].cpu()
 
 #====================== 路径参数 ======================
-# 图像和数据路径``
-# image_set_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images'  # 图像集路径
-image_set_path = 'image_pool'  # 图像集路径
+# 图像和数据路径
+# image_set_path = 'image_pool_square'  # 图像集路径
+image_set_path = 'test_images'
 # image_set_path = "stimuli_SX"  # 图像集路径
+image_set_path = '/mnt/dataset0/xkp/closed-loop/offline'
+
+
 instant_eeg_path = 'server/data/instant_eeg'                                           # 实时EEG数据存储路径
-cache_path = 'server/data/cache'                                                        # 缓存路径
-# target_image_path = 'stimuli_SX/Dis-07.jpg'   
-# target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00135_pie/pie_15s.jpg'
-target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00014_bike/bike_14s.jpg'
+cache_path = 'server/data/cache'           
+# 缓存路径
+# target_image_path = 'stimuli_SX/Dis-07.jpg' 
+# target_image_path = 'image_pool_square/square_Dis-07.jpg' 
+# target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00014_bike/bike_14s.jpg'
+# target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00181_television/television_14n.jpg'
+# target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00177_t-shirt/t-shirt_13s.jpg'
+# target_image_path =  '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00135_pie/pie_15s.jpg'
+target_image_path = '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00131_pear/pear_13s.jpg'
+
 target_eeg_path = ''                                # 目标EEG数据路径
 # 创建输出目录
-output_save_path = f"server/outputs/heuristic_generation/{feature_type}"
+output_save_path = f"server/outputs1/yiming/{feature_type}"
+# output_save_path = f"server/outputs/yiming/rating"
 shutil.rmtree(output_save_path, ignore_errors=True)  # 清除之前的输出
 os.makedirs(output_save_path, exist_ok=True)
 
 #====================== 全局变量 ======================
-selected_channel_idxes = range(59)  # 选定的EEG通道索引
 target_eeg_path = None         # 目标EEG路径
 target_feature = None           # 目标特征
 clf = None                     # 分类器
@@ -106,26 +115,12 @@ pipe = generator.pipe
 
 if use_eeg:
     # 根据特征类型加载不同的目标特征和路径
-    if feature_type == 'psd':        
-        # 加载基于功率谱密度的目标EEG数据
-        # target_eeg_path = f'/home/ldy/Closed_loop_optimizing/tjh/eeg_encoding/results/{sub}/synthetic_eeg_data/encoding-end_to_end/dnn-alexnet/modeled_time_points-all/pretrained-False/lr-1e-05__wd-0e+00__bs-064/gene_eeg/00085_gondola_85.npy'
-        # target_image_path = '/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images/00085_gondola/gondola_11s.jpg'
-        pass
+    if feature_type == 'psd':
+        selected_channel_idxes = range(59)  # 选定的EEG通道索引
         
     elif feature_type == 'clip':
         # 加载基于CLIP编码的EEG嵌入
-        gt_eeg_folder = f'/mnt/dataset0/kyw/closed-loop/syn_eeg_gt'
-        image_gt_folder = [
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00014_bike/bike_14s.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00181_television/television_14n.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00177_t-shirt/t-shirt_13s.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00135_pie/pie_15s.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00131_pear/pear_13s.jpg'
-        ]
-        target_eeg_embed = "/home/ldy/Closed_loop_optimizing/data/clip_embed/open_clip/00177_t-shirt_eeg_embeds.pt"
-        # target_image_path = image_gt_folder[2]
-        
-        
+        # target_eeg_embed = "/mnt/dataset0/xkp/closed-loop/server/target_embed/open_clip/00014_bike_eeg_embeds.pt"
         # 加载EEG编码模型
         f_encoder = f"/mnt/dataset0/kyw/closed-loop/sub_model/{sub}/diffusion_alexnet/pretrained_True/gene_gene/ATM_S_reconstruction_scale_0_1000_40.pth"
         checkpoint = torch.load(f_encoder, map_location=device)
@@ -136,13 +131,6 @@ if use_eeg:
     elif feature_type == 'clip_img': 
         # 加载基于CLIP的图像嵌入
         gt_eeg_folder = f'/mnt/dataset0/kyw/closed-loop/syn_eeg_gt'
-        image_gt_folder = [
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00014_bike/bike_14s.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00181_television/television_14n.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00177_t-shirt/t-shirt_13s.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00135_pie/pie_15s.jpg',
-            '/mnt/dataset0/ldy/datasets/THINGS_MEG/images_set/test_images/00131_pear/pear_13s.jpg'
-        ]    
         # target_image_embed = "/home/ldy/Closed_loop_optimizing/data/clip_embed/open_clip/00135_pie_image_embeds.pt"
         target_image_embed = "/mnt/dataset0/xkp/closed-loop/server/target_embed/open_clip/00135_pie_eeg_embeds.pt"
         # target_image_path = "/mnt/dataset0/ldy/4090_Workspace/4090_THINGS/images_set/test_images/00135_pie/pie_18s.jpg"
@@ -179,13 +167,16 @@ def experiment_1():
     if (use_eeg):
         target_eeg_list = send_images_and_collect_ratings_and_eeg([target_image_path], exp_1_save_path, 1)
         target_eeg_path = os.path.join(exp_1_save_path, 'eeg_0.npy')
+        eeg = np.load(target_eeg_path, allow_pickle=True)
+        print(f"eeg 形状: {eeg.shape}")
         # 检查目标EEG数据形状和正确性
         # 根据特征类型加载目标特征
         if feature_type == 'psd':
             target_feature = load_target_feature(target_eeg_path, fs, selected_channel_idxes)
-            print(f"数据形状: {target_feature.shape}")
+            print(f"target_feature 形状: {target_feature.shape}")
         elif feature_type == 'clip':
-            target_feature = torch.load(target_eeg_embed)     
+            target_feature = get_target_feature_from_eeg(eeg, eeg_model, device, sub)
+            print(f'target_feature 形状: {target_feature.shape}')
         elif feature_type == 'clip_img':
             target_feature = torch.load(target_image_embed)
     else:
@@ -196,8 +187,16 @@ def experiment_1():
             return jsonify({"message": "获取评分失败，实验终止"}), 500
         
     print("实验一结束")
-    experiment_2()
-        
+    # experiment_2()
+    experiment_2_post()
+    # 通知客户端实验完成
+    socketio.emit('experiment_finished', {
+        "message": "实验完成"
+    })
+    
+    return jsonify({
+        "message": "实验成功完成",
+    }), 200
     
 
 @app.route('/experiment_2', methods=['POST'])
@@ -229,12 +228,17 @@ def experiment_2():
     
     processed_paths = set()  # 记录已处理的图像路径
     
-    # 实验数据记录
-    all_chosen_ratings = []      # 记录所有选中图片的评分
-    all_chosen_image_paths = []  # 记录所有选中的图片路径
-    history_best_ratings = []    # 记录每一轮的最高评分
-    
+    # 实验数据记录    
     all_viewed_image_paths = []  # 记录所有查看过的图片路径
+    all_greedy_image_paths = []  # 记录所有贪心选择的图片路径
+    all_fusion_image_paths = []  # 记录所有融合生成的图片路径
+    all_viewed_image_rewards = []  # 记录所有查看过的图片的评分
+    all_fusion_image_rewards = []  # 记录所有融合生成的图片的评分
+    all_greedy_image_rewards = []  # 记录所有贪心选择的图片路径
+    all_viewed_image_ratings = []  # 记录所有查看过的图片的评分(不一定是rewards)
+    all_fusion_image_ratings = []  # 记录所有融合生成的图片的评分(不一定是rewards)
+    all_greedy_image_ratings = []  # 记录所有贪心选择的图片路径(不一定是rewards)
+
     
     #====================== 实验主循环 ======================
     for t in range(num_loops):
@@ -277,21 +281,26 @@ def experiment_2():
             if (use_eeg):
                 # 发送图像到客户端并收集评分和EEG数据
                 eegs = send_images_and_collect_ratings_and_eeg(sample_image_paths, first_ten, 10)
-                print(f"EEG数据形状: {len(eegs)}")
+                print(f"eegs 长度: {len(eegs)}")
                 # 计算相似度和损失
                 for idx, eeg in enumerate(eegs):  
                     # 根据特征类型计算相似度和损失
                     if feature_type == 'psd':
                         cs = reward_function(eeg, target_feature, fs, selected_channel_idxes)
-                      
+                        
                     elif feature_type == 'clip':
-                        cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn)
+                        cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, device)
                       
                     elif feature_type == 'clip_img':
                         cs = reward_function_clip_embed_image(pil_images[idx], target_feature)   
 
-                    
+                    # 记录相似度
+                    all_viewed_image_rewards.append(cs) 
                     similarities.append(cs)        
+                    
+                    # 记录评分
+                    all_viewed_image_ratings.append(ratings[idx])
+                  
                 print(f"相似度: {similarities}")
             else:
                 # 发送图像到客户端并收集评分
@@ -302,9 +311,10 @@ def experiment_2():
                 # 将用户rating作为相似度（reward）
                 for rating in ratings:
                     similarities.append(rating)
+                    all_viewed_image_rewards.append(rating)
+                    all_viewed_image_ratings.append(rating)
                 # 清空评分列表
                 ratings = []
-                # TODO: 这里需要根据实际情况处理损失
                 
             # 计算选择概率
             probabilities = softmax(similarities)
@@ -351,6 +361,7 @@ def experiment_2():
                 generated_image_paths.append(image_path)
             
             all_viewed_image_paths.extend(generated_image_paths)  # 更新查看过的图片路径
+            all_fusion_image_paths.extend(generated_image_paths)
             
             similarities = []
             
@@ -363,12 +374,15 @@ def experiment_2():
                     if feature_type == 'psd':
                         cs = reward_function(eeg, target_feature, fs, selected_channel_idxes)
                     elif feature_type == 'clip':
-                        cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device)
+                        cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, device)
                     elif feature_type == 'clip_img':
                         cs = reward_function_clip_embed_image(
                             generated_images[idx], target_feature, device, vlmodel, preprocess_train
                         )            
-                    
+                    all_viewed_image_rewards.append(cs)
+                    all_fusion_image_rewards.append(cs)
+                    all_viewed_image_ratings.append(ratings[idx])
+                    all_fusion_image_ratings.append(ratings[idx])
                     similarities.append(cs)
                     
                 # 更新当前循环的数据
@@ -384,6 +398,10 @@ def experiment_2():
                     
                 # 将用户rating作为相似度（reward）
                 for rating in ratings:
+                    all_viewed_image_rewards.append(rating)
+                    all_viewed_image_ratings.append(rating)
+                    all_fusion_image_rewards.append(rating)
+                    all_fusion_image_ratings.append(rating)
                     similarities.append(rating)
                 
                 # 清空评分列表
@@ -445,6 +463,7 @@ def experiment_2():
                 greedy_image_paths.append(image_path)
                 
             all_viewed_image_paths.extend(greedy_image_paths)  # 更新查看过的图片路径
+            all_greedy_image_paths.extend(greedy_image_paths)
             
             similarities = []
             
@@ -456,22 +475,17 @@ def experiment_2():
                 for idx, eeg in enumerate(greedy_eegs):  
                     if feature_type == 'psd':
                         cs = reward_function(eeg, target_feature, fs, selected_channel_idxes)
-                        if np.isnan(cs):
-                            print("相似度计算为NaN，设置为0")
-                            cs = 0
                     elif feature_type == 'clip':
-                        cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device)
-                        if np.isnan(cs):
-                            print("相似度计算为NaN，设置为0")
-                            cs = 0
+                        cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, device)
                     elif feature_type == 'clip_img':
                         cs = reward_function_clip_embed_image(
                             greedy_images[idx], target_feature, device, vlmodel, preprocess_train
                         )  
-                        if np.isnan(cs):
-                            print("相似度计算为NaN，设置为0")
-                            cs = 0
                     
+                    all_viewed_image_rewards.append(cs)
+                    all_greedy_image_rewards.append(cs)
+                    all_viewed_image_ratings.append(ratings[idx])
+                    all_greedy_image_ratings.append(ratings[idx])
                     similarities.append(cs)
                 
                 # 更新当前循环的数据
@@ -487,6 +501,10 @@ def experiment_2():
                     
                 # 将用户rating作为相似度（reward）
                 for rating in ratings:
+                    all_viewed_image_rewards.append(rating)
+                    all_viewed_image_ratings.append(rating)
+                    all_greedy_image_rewards.append(rating)
+                    all_greedy_image_ratings.append(rating)
                     similarities.append(rating)
                 
                 # 清空评分列表
@@ -582,18 +600,67 @@ def experiment_2():
                     print("The difference is within 10e-4, stopping.")
                     break
     
-    # 保存所有看过的图像的路径为 npy
     viewed_paths_array = np.array(all_viewed_image_paths, dtype=object)
     save_viewed_paths = os.path.join(output_save_path, 'viewed_image_paths.npy')
     np.save(save_viewed_paths, viewed_paths_array)
     print(f"所有被试看过的图片路径已保存至: {save_viewed_paths}")
     print(f"被试总共看过 {len(all_viewed_image_paths)} 张图片")
     
-    # 保存 all_chosen_rewards
-    all_chosen_rewards_array = np.array(all_chosen_rewards, dtype=object)
-    save_rewards_path = os.path.join(output_save_path, 'all_chosen_rewards.npy')
-    np.save(save_rewards_path, all_chosen_rewards_array)
-    print(f"所有被选择的奖励值已保存至: {save_rewards_path}")
+    # 保存所有 rewards
+    all_viewed_image_rewards_array = np.array(all_viewed_image_rewards, dtype=object)
+    save_rewards_path = os.path.join(output_save_path, 'all_viewed_image_rewards.npy')
+    np.save(save_rewards_path, all_viewed_image_rewards_array)
+    print(f"所有被选择的图片的奖励值已保存至: {save_rewards_path}")
+    print(f"rewards 长度: {len(all_viewed_image_rewards)}")
+    
+    # 保存所有 ratings
+    all_viewed_image_ratings_array = np.array(all_viewed_image_ratings, dtype=object)
+    save_ratings_path = os.path.join(output_save_path, 'all_viewed_image_ratings.npy')
+    np.save(save_ratings_path, all_viewed_image_ratings_array)
+    print(f"所有被选择的图片的评分已保存至: {save_ratings_path}")
+    print(f"ratings 长度: {len(all_viewed_image_ratings)}")
+    
+    # 保存贪心选择的图片路径
+    greedy_paths_array = np.array(all_greedy_image_paths, dtype=object)
+    save_greedy_paths = os.path.join(output_save_path, 'greedy_image_paths.npy')
+    np.save(save_greedy_paths, greedy_paths_array)
+    print(f"所有贪心选择的图片路径已保存至: {save_greedy_paths}")
+    print(f"贪心图片数量: {len(all_greedy_image_paths)}")
+    
+    # 保存融合生成的图片路径
+    fusion_paths_array = np.array(all_fusion_image_paths, dtype=object)
+    save_fusion_paths = os.path.join(output_save_path, 'fusion_image_paths.npy')
+    np.save(save_fusion_paths, fusion_paths_array)
+    print(f"所有融合生成的图片路径已保存至: {save_fusion_paths}")
+    print(f"融合图片数量: {len(all_fusion_image_paths)}")
+    
+    # 保存贪心选择的图片奖励值
+    greedy_rewards_array = np.array(all_greedy_image_rewards, dtype=object)
+    save_greedy_rewards = os.path.join(output_save_path, 'greedy_image_rewards.npy')
+    np.save(save_greedy_rewards, greedy_rewards_array)
+    print(f"所有贪心选择的图片奖励值已保存至: {save_greedy_rewards}")
+    print(f"贪心奖励值数量: {len(all_greedy_image_rewards)}")
+    
+    # 保存融合生成的图片奖励值
+    fusion_rewards_array = np.array(all_fusion_image_rewards, dtype=object)
+    save_fusion_rewards = os.path.join(output_save_path, 'fusion_image_rewards.npy')
+    np.save(save_fusion_rewards, fusion_rewards_array)
+    print(f"所有融合生成的图片奖励值已保存至: {save_fusion_rewards}")
+    print(f"融合奖励值数量: {len(all_fusion_image_rewards)}")
+    
+    # 保存贪心选择的图片评分
+    greedy_ratings_array = np.array(all_greedy_image_ratings, dtype=object)
+    save_greedy_ratings = os.path.join(output_save_path, 'greedy_image_ratings.npy')
+    np.save(save_greedy_ratings, greedy_ratings_array)
+    print(f"所有贪心选择的图片评分已保存至: {save_greedy_ratings}")
+    print(f"贪心评分数量: {len(all_greedy_image_ratings)}")
+    
+    # 保存融合生成的图片评分
+    fusion_ratings_array = np.array(all_fusion_image_ratings, dtype=object)
+    save_fusion_ratings = os.path.join(output_save_path, 'fusion_image_ratings.npy')
+    np.save(save_fusion_ratings, fusion_ratings_array)
+    print(f"所有融合生成的图片评分已保存至: {save_fusion_ratings}")
+    print(f"融合评分数量: {len(all_fusion_image_ratings)}")
     
     # 输出实验结果统计
     print(f"chosen_rewards {len(chosen_rewards)}")
@@ -622,6 +689,72 @@ def experiment_2():
         "message": "实验成功完成",
     }), 200
     
+@app.route('/experiment_2_post', methods=['POST'])
+def experiment_2_post():
+    """给被试观看返回的离线刺激"""
+    global selected_channel_idxes
+    global target_eeg_path 
+    global target_image_path
+    global target_feature
+    global ratings
+    
+    print("\n" + "#" * 50)
+    print("采集离线刺激")
+    print("#" * 50 + "\n")
+    
+    # 搜索图片
+    offline_images_path = '/mnt/dataset0/xkp/closed-loop/offline'
+    offline_images = [f for f in os.listdir(offline_images_path) if f.endswith('.jpg') or f.endswith('.png')]
+    print(f"一共 {len(offline_images)} 张图片")
+    offline_images_path = [os.path.join(offline_images_path, offline_image) for offline_image in offline_images]
+    
+    # 构建图像路径列表
+    all_viewed_image_paths = offline_images_path.copy()  # 记录所有查看过的图片路径
+    all_viewed_image_rewards = []
+    all_viewed_image_ratings = []
+    
+    # 创建保存目录
+    offline_save_path = os.path.join(output_save_path, f'offline')
+    shutil.rmtree(offline_save_path, ignore_errors=True)  # 清除之前的输出
+    os.makedirs(offline_save_path, exist_ok=True)
+    
+    eegs = send_images_and_collect_ratings_and_eeg(offline_images_path, offline_save_path, len(offline_images_path))
+    
+    for idx, eeg in enumerate(eegs):
+        if feature_type == 'psd':
+            cs = reward_function(eeg, target_feature, fs, selected_channel_idxes)
+        elif feature_type == 'clip':
+            cs, eeg_feature = reward_function_clip_embed(eeg, eeg_model, target_feature, sub, device)
+            
+        print(f"reward: {cs}")
+        print(f"rating: {ratings[idx]}")
+        all_viewed_image_rewards.append(cs)
+        all_viewed_image_ratings.append(ratings[idx])
+        
+    viewed_paths_array = np.array(all_viewed_image_paths, dtype=object)
+    save_viewed_paths = os.path.join(output_save_path, 'viewed_image_paths.npy')
+    np.save(save_viewed_paths, viewed_paths_array)
+    print(f"所有被试看过的图片路径已保存至: {save_viewed_paths}")
+    print(f"被试总共看过 {len(all_viewed_image_paths)} 张图片")
+    
+    # 保存所有 rewards
+    all_viewed_image_rewards_array = np.array(all_viewed_image_rewards, dtype=object)
+    save_rewards_path = os.path.join(output_save_path, 'all_viewed_image_rewards.npy')
+    np.save(save_rewards_path, all_viewed_image_rewards_array)
+    print(f"所有被选择的图片的奖励值已保存至: {save_rewards_path}")
+    print(f"rewards 长度: {len(all_viewed_image_rewards)}")
+    
+    # 保存所有 ratings
+    all_viewed_image_ratings_array = np.array(all_viewed_image_ratings, dtype=object)
+    save_ratings_path = os.path.join(output_save_path, 'all_viewed_image_ratings.npy')
+    np.save(save_ratings_path, all_viewed_image_ratings_array)
+    print(f"所有被选择的图片的评分已保存至: {save_ratings_path}")
+    print(f"ratings 长度: {len(all_viewed_image_ratings)}")
+        
+    
+    socketio.emit('experiment_finished', {
+        "message": "实验完成"
+    })
 
 @app.route('/eeg_upload', methods=['POST'])
 def receive_eeg():
@@ -794,9 +927,12 @@ def send_images_and_collect_ratings_and_eeg(image_paths, save_dir, num_of_events
     processed_event_data_list = []
     for idx, event_data in enumerate(event_data_list):
         data = real_time_process(event_data, filters)
+        if (feature_type == 'clip'):
+            data = convert_eeg(data)
         processed_event_data_list.append(data)
         eeg_file = os.path.join(save_dir, f'eeg_{idx}.npy')
         np.save(eeg_file, data)
+        
         
     print(f"数据已保存到 {save_dir}")
     return processed_event_data_list

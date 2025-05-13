@@ -17,7 +17,7 @@ class BaseModel:
 class EEGModel:
     def __init__(self):
         self.sample_rate = 250
-        self.t_buffer = 300
+        self.t_buffer = 300 
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM3")
