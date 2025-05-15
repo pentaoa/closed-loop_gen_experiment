@@ -18,9 +18,9 @@ image_set_path = f'stimuli_SX'
     
 
 selected_channels = []
-use_eeg = False
+use_eeg= True
 
-url = 'http://10.20.37.38:45525'
+url = 'http://10.20.97.33:45525'
 
 sio = socketio.Client() 
 
@@ -177,7 +177,7 @@ def experiment_finished(data):
         controller.stop_collection()
     # 断开连接
     sio.disconnect()
-    quit()
+    quit
 
 
 if __name__ == '__main__':
