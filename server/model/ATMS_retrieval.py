@@ -233,11 +233,29 @@ def train_model(sub, eeg_model, dataloader, optimizer, device, text_features_all
 
 
 def get_eeg_features(eeg_model, eeg_signal, device, sub):
-    eeg_model.eval()
-    eeg_model.to(device)
-    eeg_signal = eeg_signal.to(device)
+    """
+    使用预训练的EEG模型从EEG信号中提取特征表示。
+    
+    该函数将原始EEG信号输入到预训练的模型中，生成高维特征表示，用于后续的相似度计算和图像检索。
+    
+    参数:
+        eeg_model: 预训练的EEG编码模型，用于将EEG数据转换为特征向量
+        eeg_signal: Tensor，预处理后的EEG信号，形状为[batch_size, channels, timepoints]
+        device: 计算设备(cuda或cpu)
+        sub: 字符串，被试ID (如 "sub-01")，用于确定使用哪个被试特定的模型参数
+        
+    返回:
+        eeg_embeds: Tensor, 提取的EEG特征向量，形状为[batch_size, embedding_dim]
+    """
+    eeg_model.eval()  # 设置模型为评估模式
+    eeg_model.to(device)  # 将模型移至指定设备
+    eeg_signal = eeg_signal.to(device)  # 将EEG信号移至同一设备
+    
+    # 从sub字符串中提取被试ID数字，并为每个批次创建相同的ID张量
     subject_ids = torch.full((eeg_signal.size(0),), int(extract_id_from_string(sub)), dtype=torch.long).to(device)  
-    eeg_embeds = eeg_model(eeg_signal, subject_ids).float()  # 将EEG信号传入模型
+    
+    # 将EEG信号和被试ID传入模型，获取EEG特征表示
+    eeg_embeds = eeg_model(eeg_signal, subject_ids).float()  
 
     return eeg_embeds
 

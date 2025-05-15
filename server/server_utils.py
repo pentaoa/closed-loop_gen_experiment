@@ -1,7 +1,8 @@
 import os
 import random
-import signal # 在 real_time_processing 和 prepare_filters 中使用
+from scipy import signal
 
+import joblib
 import numpy as np
 import torch
 import torch.nn as nn
@@ -129,7 +130,6 @@ def train_emotion_classifier(features, labels, test_size=0.2, random_state=42):
     
     # 最佳模型
     best_model = grid_search.best_estimator_
-    import joblib
     joblib.dump(best_model, 'best_emotion_model.pkl')
 
     y_pred = best_model.predict(X_test)
@@ -313,81 +313,23 @@ def create_n_event_npy(data, count=1, fs=250, event_length=5):
     
     # 储存处理后的事件数据
     event_data_list = []
-
-    apply_baseline = True  # 是否应用基线校正
     
     for idx, event_idx in enumerate(last_events):
-        # 检查是否有足够的前导数据作为基线
-        if event_idx < fs:
-            print(f"警告: 事件 {len(event_indices) - count + idx + 1} 没有足够的前导数据用于基线校正")
-            continue
-            
         # 新的设计: 5秒图片 = 1250个样本点 (采样率250Hz)
         if event_idx + fs*event_length <= data.shape[1]:  # 确保索引不越界（需要5秒的刺激数据）
-            # 提取基线期间(事件前250ms)和事件期间的数据
-            baseline_start = event_idx - 250
-            baseline_end = event_idx
+            # 直接提取事件期间的数据，不进行基线校正
             event_data = data[:64, event_idx:event_idx + 1250]  # 事件后5秒数据
             
-            if apply_baseline:
-                # 计算基线均值
-                baseline_data = data[:64, baseline_start:baseline_end]
-                baseline_mean = np.mean(baseline_data, axis=1, keepdims=True)
-                
-                # 应用基线校正
-                corrected_event_data = event_data - baseline_mean
-            else:
-                corrected_event_data = event_data
-            
             # 添加到返回列表
-            event_data_list.append(corrected_event_data)
-            print(f"处理了事件 {len(event_indices) - count + idx + 1}，数据形状: {corrected_event_data.shape}")
+            event_data_list.append(event_data)
+            print(f"处理了事件 {len(event_indices) - count + idx + 1}，数据形状: {event_data.shape}")
         else:
             print(f"警告: 事件 {len(event_indices) - count + idx + 1} 没有足够的后续数据")
     
     return event_data_list
 
-def real_time_processing(original_data_path, preprocess_data_path, filters, apply_baseline=True):
-    """高效处理实时EEG数据，包括基线校正"""
-    data = np.load(original_data_path)
-    
-    # 应用陷波滤波器
-    filtered_data = signal.filtfilt(filters['notch'][0], filters['notch'][1], data, axis=1)
-    
-    # 应用带通滤波器
-    filtered_data = signal.filtfilt(filters['bandpass'][0], filters['bandpass'][1], filtered_data, axis=1)
-    
-    # 重采样
-    if filters['resample_factor'] != 1:
-        new_length = int(filtered_data.shape[1] * filters['resample_factor'])
-        filtered_data = signal.resample(filtered_data, new_length, axis=1)
-    
-    # 应用基线校正
-    if apply_baseline:
-        # 每张图片显示5秒，停顿1秒的设计
-        # 假设数据结构是: 停顿1秒 -> 图片呈现5秒 -> 停顿1秒 -> ...
-        # 采样率为250Hz，所以1秒对应250个数据点，5秒对应1250个数据点
-        
-        # 确定数据长度够不够一个完整的刺激周期
-        if filtered_data.shape[1] >= 1500:  # 至少需要6秒数据(停顿1秒+刺激5秒)
-            # 使用停顿期的最后250ms作为基线
-            baseline_window = (-250, 0)  # 刺激前250ms作为基线
-            stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
-            
-            # 计算基线均值(使用刺激前的250ms数据)
-            baseline_start = stimulus_onset + int(baseline_window[0])
-            baseline_end = stimulus_onset + int(baseline_window[1])
-            baseline_mean = np.mean(filtered_data[:, baseline_start:baseline_end], axis=1, keepdims=True)
-            
-            # 减去基线均值
-            filtered_data = filtered_data - baseline_mean
-    
-    os.makedirs(os.path.dirname(preprocess_data_path), exist_ok=True)
-    np.save(preprocess_data_path, filtered_data)
-    return filtered_data
-
-def real_time_process(original_data, filters, apply_baseline=True):
-    """高效处理实时EEG数据，包括基线校正"""
+def real_time_process(original_data, filters, apply_baseline=False):  # 默认不应用基线校正
+    """高效处理实时EEG数据，不包括基线校正"""
     # 应用陷波滤波器
     filtered_data = signal.filtfilt(filters['notch'][0], filters['notch'][1], original_data, axis=1)
     
@@ -399,25 +341,7 @@ def real_time_process(original_data, filters, apply_baseline=True):
         new_length = int(filtered_data.shape[1] * filters['resample_factor'])
         filtered_data = signal.resample(filtered_data, new_length, axis=1)
     
-    # 应用基线校正
-    if apply_baseline:
-        # 每张图片显示5秒，停顿1秒的设计
-        # 假设数据结构是: 停顿1秒 -> 图片呈现5秒 -> 停顿1秒 -> ...
-        # 采样率为250Hz，所以1秒对应250个数据点，5秒对应1250个数据点
-        
-        # 确定数据长度够不够一个完整的刺激周期
-        if filtered_data.shape[1] >= 1500:  # 至少需要6秒数据(停顿1秒+刺激5秒)
-            # 使用停顿期的最后250ms作为基线
-            baseline_window = (-250, 0)  # 刺激前250ms作为基线
-            stimulus_onset = 250  # 刺激在第250个点开始(第1秒开始)
-            
-            # 计算基线均值(使用刺激前的250ms数据)
-            baseline_start = stimulus_onset + int(baseline_window[0])
-            baseline_end = stimulus_onset + int(baseline_window[1])
-            baseline_mean = np.mean(filtered_data[:, baseline_start:baseline_end], axis=1, keepdims=True)
-            
-            # 减去基线均值
-            filtered_data = filtered_data - baseline_mean
+    # 删除基线校正相关代码
     
     return filtered_data
 
@@ -474,7 +398,7 @@ def compute_embed_similarity(img_feature, all_features):
     return cosine_sim
 
 
-def visualize_top_images(images, save_path, similarities, save_folder, iteration):
+def visualize_top_images(images, similarities, save_folder, iteration):
     """
     使用 matplotlib 按相似度顺序显示选中的图片
     :param image_paths: 图片路径列表
@@ -499,10 +423,37 @@ def visualize_top_images(images, save_path, similarities, save_folder, iteration
     fig.savefig(save_path, bbox_inches='tight', dpi=300)  # 保存图像文件
     print(f"Visualization saved to {save_path}")
     
+# def load_target_feature(target_path, fs, selected_channel_idxes):
+#     target_signal = np.load(target_path, allow_pickle=True)
+#     print(f"target_signal shape: {target_signal.shape}")
+#     # noise = torch.randn(size=(3, 250))
+#     target_psd, _ = psd_array_multitaper(target_signal, fs, adaptive=True, normalization='full', verbose=0)
+#     print(f"Target psd shape:{target_psd.shape}")
+#     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
+
 def load_target_feature(target_path, fs, selected_channel_idxes):
     target_signal = np.load(target_path, allow_pickle=True)
-    selected_target_signal = target_signal[selected_channel_idxes, :]
-    target_psd, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
+    target_signal = target_signal[selected_channel_idxes, :]
+    print(f"target_signal shape: {target_signal.shape}")
+    print(f"{target_signal}")
+    # 1. 检查输入数据是否包含无效值
+    if np.isnan(target_signal).any() or np.isinf(target_signal).any():
+        print("警告: 输入信号包含 NaN 或 Inf 值，将替换为零")
+        target_signal = np.nan_to_num(target_signal, nan=0.0, posinf=0.0, neginf=0.0)
+        
+    if np.allclose(target_signal, 0):
+        print("=====全零!")
+    
+    # 2. 使用更保守的 PSD 计算参数
+    target_psd, _ = psd_array_multitaper(target_signal, fs, adaptive=True, 
+                                        normalization='full', verbose=0)
+    
+    # 3. 检查 PSD 结果是否包含无效值
+    if np.isnan(target_psd).any() or np.isinf(target_psd).any():
+        print("警告: PSD 计算产生了 NaN 或 Inf 值，将替换为零")
+        target_psd = np.nan_to_num(target_psd, nan=0.0, posinf=0.0, neginf=0.0)
+        
+    print(f"Target psd shape:{target_psd.shape}")
     return torch.from_numpy(target_psd.flatten()).unsqueeze(0)
 
 def preprocess_image(image_path, device):
@@ -560,55 +511,6 @@ def preprocess_generated_image(image, device):
     image_tensor = transform(image).unsqueeze(0).to(device)
     return image_tensor
 
-def calculate_loss_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
-    # eeg = np.load(eeg_path, allow_pickle=True)
-    # selected_eeg = eeg[selected_channel_idxes, :]
-    # psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
-    # psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    # target_feature = torch.tensor(target_feature).view(1, 378)
-    # loss_fn = nn.MSELoss()
-    # loss = loss_fn(psd, target_feature)    
-    loss = 0
-    return loss
-
-def calculate_loss(eeg, target_feature, fs, selected_channel_idxes):    
-    # selected_eeg = eeg[selected_channel_idxes, :]
-    # psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
-    # psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    # target_feature = torch.tensor(target_feature).view(1, 378)
-    # loss_fn = nn.MSELoss()
-    # loss = loss_fn(psd, target_feature)
-    loss = 0
-    return loss
-
-def calculate_loss_clip_embed():
-    loss = 0
-    return loss
-
-def calculate_loss_clip_embed_image():
-    loss = 0
-    return loss
-
-def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
-    eeg = np.load(eeg_path, allow_pickle=True)
-    selected_eeg = eeg[selected_channel_idxes, :]
-    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
-    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    return F.cosine_similarity(target_feature, psd).item()
-
-
-def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
-    selected_target_signal = target_signal[selected_channel_idxes, :]
-    psd_feature, _ = psd_array_multitaper(selected_target_signal, fs, adaptive=True, normalization='full', verbose=0)
-    return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
-
-def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
-    selected_eeg = eeg[selected_channel_idxes, :]
-    psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
-    psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
-    return F.cosine_similarity(target_feature, psd).item()
-
-
 def reward_function_clip_embed_image(pil_image, target_feature, device, vlmodel, preprocess_train):
     """
     生成与某张图片对应的脑电信号，并与 groundtruth 进行相似度计算
@@ -626,19 +528,51 @@ def reward_function_clip_embed_image(pil_image, target_feature, device, vlmodel,
     # print(similarity)
     return similarity.item()
 
-def reward_function_clip_embed(eeg, eeg_model, target_feature, sub, dnn, device):
+def get_target_feature_from_eeg(eeg, eeg_model, device, sub):
     """
-    生成与某张图片对应的脑电信号，并与 groundtruth 进行相似度计算
-    :param image: 图片特征向量 [1024]
-    :param groundtruth_eeg: groundtruth 的特征向量 [1024]
-    :return: EEG信号与groundtruth的相似度
-    """    
-    eeg_feature = get_eeg_features(eeg_model, torch.tensor(eeg).unsqueeze(0), device, sub)    
+    计算EEG clip embed
+    """
+    # 确保EEG数据是float32类型，并添加批次维度
+    eeg_tensor = torch.tensor(eeg, dtype=torch.float32).unsqueeze(0)
+    
+    # 使用EEG模型提取特征
+    eeg_feature = get_eeg_features(eeg_model, eeg_tensor, device, sub)
+    
+    # 计算EEG特征与目标特征之间的余弦相似度
+    return eeg_feature
+
+def reward_function_clip_embed(eeg, eeg_model, target_feature, sub, device):
+    """
+    计算EEG数据与目标特征的相似度。
+    
+    该函数将EEG数据转换为CLIP嵌入特征，并与目标特征计算余弦相似度。
+    相似度被归一化到[0,1]范围，以便用作奖励值。
+    
+    参数:
+        eeg: numpy数组，原始EEG数据，形状为(channels, timepoints)
+        eeg_model: 预训练的EEG编码模型，用于将EEG数据转换为特征向量
+        target_feature: 目标特征向量，用于与EEG特征计算相似度
+        sub: 字符串，被试ID，用于特征提取
+        dnn: 字符串，使用的深度神经网络模型类型
+        device: 计算设备(cuda或cpu)
+        
+    返回:
+        similarity: float, 归一化到[0,1]范围的余弦相似度
+        eeg_feature: torch.Tensor, 提取的EEG特征向量
+    """
+    # 确保EEG数据是float32类型，并添加批次维度
+    eeg_tensor = torch.tensor(eeg, dtype=torch.float32).unsqueeze(0)
+    
+    # 使用EEG模型提取特征
+    eeg_feature = get_eeg_features(eeg_model, eeg_tensor, device, sub)
+    
+    # 计算EEG特征与目标特征之间的余弦相似度
     similarity = torch.nn.functional.cosine_similarity(eeg_feature.to(device), target_feature.to(device))
-    # cos_sim = F.softmax(cos_sim)
+    
+    # 将相似度从[-1,1]范围归一化到[0,1]范围
     similarity = (similarity + 1) / 2
     
-    # print(similarity)
+    # 返回标量相似度值和EEG特征向量
     return similarity.item(), eeg_feature
 
 def reward_function_from_eeg_path(eeg_path, target_feature, fs, selected_channel_idxes):
@@ -655,12 +589,17 @@ def load_psd_from_eeg(target_signal, fs, selected_channel_idxes):
     return torch.from_numpy(psd_feature.flatten()).unsqueeze(0)
 
 def reward_function(eeg, target_feature, fs, selected_channel_idxes):    
+    if selected_channel_idxes is None or len(selected_channel_idxes) == 0:
+        # 使用所有通道
+        selected_channel_idxes = range(eeg.shape[0])     
     selected_eeg = eeg[selected_channel_idxes, :]
     psd, _ = psd_array_multitaper(selected_eeg, fs, adaptive=True, normalization='full', verbose=0)
     psd = torch.from_numpy(psd.flatten()).unsqueeze(0)
+    # print(f"F.cosine_similarity(target_feature, psd) {F.cosine_similarity(target_feature, psd)}")
+    # print(f"target_feature {target_feature}")
     return F.cosine_similarity(target_feature, psd).item()
 
-def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, scale, target_feature):        
+def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, scale):        
         # 随机选择两个不同的索引
     idx1, idx2 = random.sample(range(len(img_embeds)), 2)
     # 获取对应的嵌入向量并添加批次维度
@@ -675,11 +614,11 @@ def fusion_image_to_images(Generator, img_embeds, rewards, device, save_path, sc
     # print(f"rewards {len(rewards)}")
     generated_images = []        
     # with torch.no_grad():         
-    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), target_feature, prompt='', save_path=None, start_embedding=embed1)
+    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), prompt='', save_path=None, start_embedding=embed1)
     # image = generator.generate(embed1)
     generated_images.extend(images)
     # print(f"type(images) {type(images)}")
-    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), target_feature, prompt='', save_path=None, start_embedding=embed2)
+    images = Generator.generate(img_embeds.to(device), torch.tensor(rewards).to(device), prompt='', save_path=None, start_embedding=embed2)
     # image = generator.generate(embed2)
     generated_images.extend(images)
     
@@ -695,15 +634,14 @@ def select_from_image_paths(probabilities, similarities, sample_image_paths, syn
     chosen_eegs = [synthetic_eegs[idx] for idx in chosen_indices.tolist()]
     return chosen_similarities, chosen_images, chosen_eegs
 
-def select_from_image_paths_without_eeg(probabilities, similarities, losses, sample_image_paths, size):
+def select_from_image_paths_without_eeg(probabilities, similarities, sample_image_paths, size):
     chosen_indices = np.random.choice(len(probabilities), size=size, replace=False, p=probabilities)
     # print(f"sample_image_paths {len(sample_image_paths)}")
     # print(f"chosen_indices  {chosen_indices}")
     
-    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
-    chosen_losses = [losses[idx] for idx in chosen_indices.tolist()]    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()]     
     chosen_images = [Image.open(sample_image_paths[i]).convert("RGB") for i in chosen_indices.tolist()]        
-    return chosen_similarities, chosen_losses, chosen_images
+    return chosen_similarities, chosen_images
 
 def select_from_images(probabilities, similarities, images_list, eeg_list, size):
     chosen_indices = np.random.choice(len(similarities), size=size, replace=False, p=probabilities)
@@ -713,6 +651,62 @@ def select_from_images(probabilities, similarities, images_list, eeg_list, size)
     chosen_images = [images_list[idx] for idx in chosen_indices.tolist()]
     chosen_eegs = [eeg_list[idx] for idx in chosen_indices.tolist()]
     return chosen_similarities, chosen_images, chosen_eegs
+
+def select_from_images_without_eeg(probabilities, similarities, images_list, size):
+    chosen_indices = np.random.choice(len(similarities), size=size, replace=False, p=probabilities)
+    # print(f"eeg_list {len(eeg_list)}")
+    # print(f"chosen_indices  {chosen_indices}")    
+    chosen_similarities = [similarities[idx] for idx in chosen_indices.tolist()] 
+    chosen_images = [images_list[idx] for idx in chosen_indices.tolist()]
+    return chosen_similarities, chosen_images
+
+def convert_eeg(eeg_data, downsample=True):
+    """
+    将原始EEG数据(64,1250)转换为特定通道排序的(17,1250)或降采样后的(17,250)
+    
+    参数:
+        eeg_data: 原始EEG数据，形状为(64,1250)
+        downsample: 是否进行降采样，默认为True，每5个点取1个点
+        
+    返回:
+        selected_eeg: 选定通道和降采样后的EEG数据，形状为(17,250)或(17,1250)
+    """
+    # 确保输入数据形状正确
+    if eeg_data.shape[0] != 64:
+        raise ValueError(f"输入EEG数据应有64个通道，但实际有{eeg_data.shape[0]}个")
+    
+    # 定义所需通道的索引（0-based索引）
+    channel_indices = [
+        58,  # O1
+        57,  # Oz
+        59,  # O2
+        55,  # PO7
+        51,  # PO3
+        50,  # POz
+        52,  # PO4
+        56,  # PO8
+        48,  # P7
+        46,  # P5
+        44,  # P3
+        53,  # PO5 (替代P1)
+        43,  # Pz
+        54,  # PO6 (替代P2)
+        45,  # P4
+        47,  # P6
+        49   # P8
+    ]
+    
+    # 提取所需通道
+    selected_eeg = eeg_data[channel_indices, :]
+    
+    # 进行降采样，每5个点取1个
+    if downsample:
+        selected_eeg = selected_eeg[:, ::5]  # 使用切片操作每5个点取1个
+    
+    print(f"原始EEG数据形状: {eeg_data.shape}")
+    print(f"转换后EEG数据形状: {selected_eeg.shape}")
+    
+    return selected_eeg
 
 class HeuristicGenerator:
     def __init__(self, pipe, vlmodel, preprocess_train, device="cuda"):
@@ -800,7 +794,7 @@ class HeuristicGenerator:
         
         return merged_image
         
-    def generate(self, data_x, data_y, tar_image_embed, prompt='', save_path=None, start_embedding=None):
+    def generate(self, data_x, data_y, prompt='', save_path=None, start_embedding=None):
         # Add model data
         # print(f"data_x {data_x[0].shape}")
         # print(f"data_y {data_y}")
